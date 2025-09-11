@@ -32,6 +32,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import static org.objectweb.asm.Opcodes.ACC_ABSTRACT;
+import static org.objectweb.asm.Opcodes.ACC_NATIVE;
 import static org.objectweb.asm.Opcodes.ASM9;
 
 /**
@@ -132,6 +134,12 @@ public final class AsmWeaver implements Weaver {
             final String internalName = it.getKey();
             final ClassWork cw = it.getValue();
 
+            if (cw.getInjects().isEmpty() && cw.getRedirects().isEmpty()) {
+                entries.add(new WeaveResult.Entry(it.getKey(), WeaveResult.Outcome.SKIPPED));
+                skipped++;
+                continue;
+            }
+
             final byte[] original;
             try {
                 original = request.source().getClassBytes(internalName);
@@ -155,9 +163,18 @@ public final class AsmWeaver implements Weaver {
                 final boolean changed = transformedBytes != null;
 
                 if (changed) {
-                    request.sink().accept(internalName, transformedBytes);
-                    entries.add(new WeaveResult.Entry(internalName, WeaveResult.Outcome.TRANSFORMED));
-                    transformed++;
+                    try {
+                        request.sink().accept(internalName, transformedBytes);
+                        entries.add(new WeaveResult.Entry(internalName, WeaveResult.Outcome.TRANSFORMED));
+                        transformed++;
+                    } catch (final IOException ioe) {
+                        problems.error("weave/" + internalName, "Failed writing class: " + ioe.getMessage());
+                        if (!safe) {
+                            throw ioe;
+                        }
+                        entries.add(new WeaveResult.Entry(internalName, WeaveResult.Outcome.FAILED));
+                        failed++;
+                    }
                 } else {
                     entries.add(new WeaveResult.Entry(internalName, WeaveResult.Outcome.SKIPPED));
                     skipped++;
@@ -186,6 +203,7 @@ public final class AsmWeaver implements Weaver {
      * @return a map from internal class name to {@link ClassWork}, never {@code null}
      */
     @NotNull
+    @SuppressWarnings("ConstantConditions")
     private Map<String, ClassWork> buildWork(@NotNull final WeavePlan plan,
                                                       @NotNull final ConfigProblems problems) {
         final Map<String, ClassWork> map = new LinkedHashMap<>();
@@ -195,19 +213,23 @@ public final class AsmWeaver implements Weaver {
                 final ClassWork cw = map.computeIfAbsent(target, k -> new ClassWork(target));
                 for (final PlannedEntry pe : mixin.getEntries()) {
                     final Optional<ResolvedHook> rhOpt = this.resolver.resolve(
-                            mixin, pe, problems, "resolve/" + target + "/" + mixin.getClassName() + ":" + pe.getId());
+                            mixin, pe, problems, "resolve/" + target + "/" + mixin.getClassName() + ":" + pe.getId()
+                    );
+                    final String ctx = pathResolve(target, mixin, pe);
                     if (rhOpt.isEmpty()) {
-                        problems.error("resolve/" + target, "No hook resolved for " + mixin.getClassName() + " id=" + pe.getId());
+                        final String msg = "No hook resolved for " + mixin.getClassName() + " id=" + pe.getId();
+                        if (pe.isOptional()) {
+                            problems.warn(ctx, msg + " (optional; skipping)");
+                        } else {
+                            problems.error(ctx, msg);
+                        }
                         continue;
                     }
                     final ResolvedHook rh = rhOpt.get();
                     switch (pe.getKind()) {
                         case INJECT -> {
-                            if (!"()V".equals(rh.desc())) {
-                                problems.error("resolve/" + target, "INJECT hook must be ()V in MVP: " + rh.owner() + "." + rh.name() + rh.desc());
-                                continue;
-                            }
-                            cw.getInjects().computeIfAbsent(this.sigOf(pe.getMethod()), k -> new ArrayList<>())
+                            cw.getInjects()
+                                    .computeIfAbsent(this.sigOf(pe.getMethod()), k -> new ArrayList<>())
                                     .add(new InjectionSpec(pe.getAt(), rh, pe.isOptional(), pe.isRemap(), pe.getId(), mixin.getPriority()));
                         }
                         case REDIRECT ->
@@ -260,6 +282,7 @@ public final class AsmWeaver implements Weaver {
                               @NotNull final ConfigProblems problems) {
         final VerifyFrames verify = request.runtime().getVerifyFrames();
         final boolean compute = verify.isAtLeast(VerifyFrames.BASIC);
+        final int acceptFlags = compute ? ClassReader.EXPAND_FRAMES : 0;
 
         final ClassReader cr = new ClassReader(original);
         final ClassWriter cw = compute
@@ -276,6 +299,11 @@ public final class AsmWeaver implements Weaver {
                                              final String signature,
                                              final String[] exceptions) {
                 MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+
+                // fix: skip abstract/native methods
+                if ((access & (ACC_ABSTRACT | ACC_NATIVE)) != 0) {
+                    return mv;
+                }
 
                 final String sig = name + descriptor;
 
@@ -333,8 +361,34 @@ public final class AsmWeaver implements Weaver {
             }
         };
 
-        cr.accept(cv, compute ? ClassReader.SKIP_FRAMES : 0);
+        cr.accept(cv, acceptFlags);
         return changed.isSet() ? cw.toByteArray() : null;
+    }
+
+    /**
+     * Constructs a unique problem context path for a specific target class and planned
+     * mixin entry.
+     *
+     * @param target target class internal JVM name (slash-separated); never {@code null}
+     * @param mixin  the planned mixin; never {@code null}
+     * @param pe     the planned entry; never {@code null}
+     * @return a context path string for diagnostics; never {@code null}
+     */
+    @NotNull
+    private static String pathResolve(@NotNull final String target, @NotNull final PlannedMixin mixin, @NotNull final PlannedEntry pe) {
+        return "resolve/" + target + "/" + mixin.getClassName() + ":" + pe.getId();
+    }
+
+    /**
+     * Constructs a unique problem context path for a specific target class and method signature.
+     *
+     * @param internalName internal JVM class name (slash-separated); never {@code null}
+     * @param sig          method signature (name + descriptor); never {@code null}
+     * @return a context path string for diagnostics; never {@code null}
+     */
+    @NotNull
+    private static String pathWeave(@NotNull final String internalName, @NotNull final String sig) {
+        return "weave/" + internalName + "/" + sig;
     }
 
     /**
