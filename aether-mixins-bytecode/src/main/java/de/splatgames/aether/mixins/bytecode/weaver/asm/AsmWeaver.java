@@ -359,7 +359,7 @@ public final class AsmWeaver implements Weaver {
                 }
                 for (final InjectionSpec h : headSorted) {
                     mv = new InjectHeadAdapter(
-                            this.api, mv,
+                            this.api, name, mv,
                             internalName, access, descriptor,
                             h.hook(), h.optional(), h.id(),
                             changed::getAndSet,

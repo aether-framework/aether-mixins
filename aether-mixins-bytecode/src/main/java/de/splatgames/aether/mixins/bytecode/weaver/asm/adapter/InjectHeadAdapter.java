@@ -1,12 +1,15 @@
 package de.splatgames.aether.mixins.bytecode.weaver.asm.adapter;
 
+import de.splatgames.aether.mixins.bytecode.weaver.asm.util.HookShape;
 import de.splatgames.aether.mixins.bytecode.weaver.hook.ResolvedHook;
 import de.splatgames.aether.mixins.core.config.problems.ConfigProblems;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.commons.LocalVariablesSorter;
 
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 
@@ -34,15 +37,24 @@ import static org.objectweb.asm.Opcodes.INVOKESTATIC;
  * @author Erik Pförtner
  * @since 0.1.0
  */
-public final class InjectHeadAdapter extends MethodVisitor {
+public final class InjectHeadAdapter extends LocalVariablesSorter {
 
-    private enum HookShape {NONE, THIS, ARGS, THIS_ARGS}
+    /**
+     * Internal JVM class name of {@link de.splatgames.aether.mixins.core.api.CallbackInfo CallbackInfo}.
+     */
+    private static final String CI_INTERNAL = "de/splatgames/aether/mixins/core/api/CallbackInfo";
 
     /**
      * The resolved hook (owner/name/desc) to invoke at method entry.
      */
     @NotNull
     private final ResolvedHook hook;
+
+    /**
+     * Name of the target method (for diagnostics).
+     */
+    @NotNull
+    private final String methodName;
 
     /**
      * Whether the injection may be missing without raising an exception.
@@ -98,8 +110,14 @@ public final class InjectHeadAdapter extends MethodVisitor {
     private boolean applied = false;
 
     /**
+     * Tracks whether we have already injected after the constructor call in a &lt;init&gt; method.
+     */
+    private boolean injectedAfterCtor = false;
+
+    /**
      * Constructs a new adapter that injects a hook call at method entry.
      *
+     * @param methodName  name of the target method (for diagnostics); must not be {@code null}
      * @param api         ASM API level to use
      * @param mv          downstream method visitor to delegate to; must not be {@code null}
      * @param ownerInternal internal JVM class name of the target method (e.g., {@code com/example/Foo}); must not be {@code null}
@@ -114,6 +132,7 @@ public final class InjectHeadAdapter extends MethodVisitor {
      * @param sig         method signature {@code name+desc} for diagnostics (e.g., {@code bar(I)V}); must not be {@code null}
      */
     public InjectHeadAdapter(final int api,
+                             @NotNull final String methodName,
                              @NotNull final MethodVisitor mv,
                              @NotNull final String ownerInternal,
                              final int targetAccess,
@@ -125,7 +144,8 @@ public final class InjectHeadAdapter extends MethodVisitor {
                              @NotNull final ConfigProblems problems,
                              @NotNull final String cls,
                              @NotNull final String sig) {
-        super(api, mv);
+        super(api, targetAccess, targetDesc, mv);
+        this.methodName = methodName;
         this.ownerInternal = ownerInternal;
         this.targetAccess = targetAccess;
         this.targetDesc = targetDesc;
@@ -138,112 +158,6 @@ public final class InjectHeadAdapter extends MethodVisitor {
     }
 
     /**
-     * Determines whether the target method is an instance method (i.e., not static).
-     *
-     * @param access access flags of the target method
-     * @return {@code true} if the target method is an instance method, {@code false} if it is static
-     */
-    private static boolean isInstance(final int access) {
-        return (access & Opcodes.ACC_STATIC) == 0;
-    }
-
-    /**
-     * Parses the argument types from a method descriptor.
-     *
-     * @param desc method descriptor (e.g., {@code (I)V}); must not be {@code null}
-     * @return array of argument types; never {@code null}, may be empty
-     */
-    @NotNull
-    private static Type[] argTypes(@NotNull final String desc) {
-        return Type.getArgumentTypes(desc);
-    }
-
-    /**
-     * Parses the owner type from an internal class name.
-     *
-     * @param internal internal JVM class name (e.g., {@code com/example/Foo}); must not be {@code null}
-     * @return corresponding object type; never {@code null}
-     */
-    @NotNull
-    private static Type ownerType(final String internal) {
-        return Type.getObjectType(internal);
-    }
-
-    /**
-     * Determines the size of a local variable slot for the given type.
-     *
-     * @param t type to check; must not be {@code null}
-     * @return size of the local variable slot (1 or 2)
-     */
-    private static int localSize(@NotNull final Type t) {
-        return (t == Type.LONG_TYPE || t == Type.DOUBLE_TYPE) ? 2 : 1;
-    }
-
-    /**
-     * Emits the appropriate {@code xLOAD} instruction to load a local variable of the given type.
-     *
-     * @param mv  method visitor to emit to; must not be {@code null}
-     * @param t   type of the local variable; must not be {@code null}
-     * @param idx index of the local variable to load
-     * @throws IllegalArgumentException if the type is unsupported
-     */
-    private static void loadLocal(@NotNull final MethodVisitor mv, @NotNull final Type t, final int idx) {
-        switch (t.getSort()) {
-            case Type.BOOLEAN, Type.BYTE, Type.SHORT, Type.CHAR, Type.INT -> mv.visitVarInsn(Opcodes.ILOAD, idx);
-            case Type.FLOAT -> mv.visitVarInsn(Opcodes.FLOAD, idx);
-            case Type.LONG -> mv.visitVarInsn(Opcodes.LLOAD, idx);
-            case Type.DOUBLE -> mv.visitVarInsn(Opcodes.DLOAD, idx);
-            case Type.ARRAY, Type.OBJECT -> mv.visitVarInsn(Opcodes.ALOAD, idx);
-            default -> throw new IllegalArgumentException("Unsupported type: " + t);
-        }
-    }
-
-    /**
-     * Matches the hook descriptor against the target method descriptor and owner type.
-     *
-     * @param instance      whether the target method is an instance method (i.e., not static)
-     * @param targetDesc    method descriptor of the target method (e.g., {@code (I)V}); must not be {@code null}
-     * @param ownerInternal internal JVM class name of the target method (e.g., {@code com/example/Foo}); must not be {@code null}
-     * @param hookDesc      method descriptor of the hook method (e.g., {@code (Lcom/example/Foo;I)V}); must not be {@code null}
-     * @return matched hook shape, or {@code null} if the hook descriptor is incompatible with the target method
-     */
-    @Nullable
-    private static HookShape matchShape(final boolean instance, @NotNull final String targetDesc,
-                                        @NotNull final String ownerInternal, @NotNull final String hookDesc) {
-        final Type[] tArgs = argTypes(targetDesc);
-        final Type[] hArgs = argTypes(hookDesc);
-        final Type hRet = Type.getReturnType(hookDesc);
-        if (!Type.VOID_TYPE.equals(hRet)) {
-            return null;
-        }
-        if (hArgs.length == 0) {
-            return HookShape.NONE;
-        }
-        final Type ownerT = ownerType(ownerInternal);
-        if (hArgs.length == 1 && hArgs[0].equals(ownerT)) {
-            return instance ? HookShape.THIS : null;
-        }
-        if (hArgs.length == tArgs.length) {
-            for (int i = 0; i < hArgs.length; i++)
-                if (!hArgs[i].equals(tArgs[i])) {
-                    return null;
-                }
-            return HookShape.ARGS;
-        }
-        if (hArgs.length == tArgs.length + 1 && hArgs[0].equals(ownerT)) {
-            if (!instance) {
-                return null;
-            }
-            for (int i = 0; i < tArgs.length; i++)
-                if (!hArgs[i + 1].equals(tArgs[i])) {
-                    return null;
-                }
-            return HookShape.THIS_ARGS;
-        }
-        return null;
-    }
-
-    /**
      * Injects the hook call at method entry.
      *
      * <p>If the hook descriptor is incompatible with the target method, a non-optional injection
@@ -252,28 +166,139 @@ public final class InjectHeadAdapter extends MethodVisitor {
     @Override
     public void visitCode() {
         super.visitCode();
-        final boolean instance = isInstance(this.targetAccess);
-        final HookShape shape = matchShape(instance, this.targetDesc, this.ownerInternal, this.hook.desc());
-        if (shape == null) {
-            if (!this.optional) {
-                throw new IllegalStateException("HEAD inject: incompatible hook signature for id=" + this.id +
-                        " hook=" + hook.owner() + "." + hook.name() + hook.desc());
-            }
+        if ("<init>".equals(this.methodName)) {
+            // Constructor: do nothing here; we’ll inject right after the super/this-ctor call.
             return;
         }
-        int local = instance ? 1 : 0;
-        if (shape == HookShape.THIS || shape == HookShape.THIS_ARGS) {
-            super.visitVarInsn(Opcodes.ALOAD, 0);
-        }
-        if (shape == HookShape.ARGS || shape == HookShape.THIS_ARGS) {
-            for (final Type t : argTypes(this.targetDesc)) {
-                loadLocal(this.mv, t, local);
-                local += localSize(t);
+        final boolean instance = HookShape.isInstance(this.targetAccess);
+        @Nullable final HookShape.Kind kind = HookShape.match(instance, this.ownerInternal, this.targetDesc, this.hook.desc(), CI_INTERNAL);
+
+        if (kind == null) {
+            if (!this.optional) {
+                throw new IllegalStateException("HEAD inject: incompatible hook signature for id=" + this.id + " hook=" + this.hook.owner() + "." + this.hook.name() + this.hook.desc());
             }
+            // Optional skip.
+            return;
         }
+
+        final Type targetRet = Type.getReturnType(this.targetDesc);
+        final boolean targetIsVoid = Type.VOID_TYPE.equals(targetRet);
+        final boolean usesCI = HookShape.usesCallbackInfo(kind);
+
+        if (usesCI && !targetIsVoid) {
+            if (!this.optional) {
+                throw new IllegalStateException("HEAD inject: CallbackInfo requires void target (id=" + this.id + ").");
+            }
+            // Optional skip.
+            return;
+        }
+
+        if (HookShape.requiresThis(kind)) {
+            HookShape.emitThisIfNeeded(this.mv, kind);
+        }
+        int local = instance ? 1 : 0;
+        if (HookShape.passesArgs(kind)) {
+            local = HookShape.emitArgs(this.mv, this.targetDesc, local);
+        }
+
+        int ciLocal = -1;
+        if (usesCI) {
+            ciLocal = newLocal(Type.getObjectType(CI_INTERNAL));
+            HookShape.newCallbackInfoIfNeeded(this.mv, kind, CI_INTERNAL, ciLocal);
+            HookShape.emitLoadCallbackInfoIfNeeded(this.mv, kind, ciLocal);
+        }
+
         super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
         this.markChanged.run();
         this.applied = true;
+
+        if (usesCI) {
+            // if (ci.isCancelled()) return;
+            super.visitVarInsn(Opcodes.ALOAD, ciLocal);
+            super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CI_INTERNAL, "isCancelled", "()Z", false);
+            final Label Lskip = new Label();
+            super.visitJumpInsn(Opcodes.IFEQ, Lskip);
+            super.visitInsn(Opcodes.RETURN);
+            super.visitLabel(Lskip);
+        }
+
+    }
+
+    @Override
+    public void visitMethodInsn(final int opcode,
+                                final String owner,
+                                final String name,
+                                final String desc,
+                                final boolean itf) {
+        super.visitMethodInsn(opcode, owner, name, desc, itf);
+
+        if (!"<init>".equals(this.methodName)) {
+            return; // only care in constructors
+        }
+        if (this.injectedAfterCtor) {
+            return; // only once
+        }
+        if (opcode == Opcodes.INVOKESPECIAL && "<init>".equals(name)) {
+            // jetzt direkt NACH dem ctor-call injizieren (gleiche Logik wie bisher in visitCode())
+            final boolean instance = HookShape.isInstance(this.targetAccess);
+            final @Nullable HookShape.Kind kind = HookShape.match(
+                    instance, this.ownerInternal, this.targetDesc, this.hook.desc(), CI_INTERNAL
+            );
+            if (kind == null) {
+                if (!this.optional) {
+                    throw new IllegalStateException(
+                            "HEAD inject (ctor): incompatible hook signature for id=" + this.id +
+                                    " hook=" + this.hook.owner() + "." + this.hook.name() + this.hook.desc()
+                    );
+                }
+                this.injectedAfterCtor = true; // don’t try again
+                return;
+            }
+
+            final Type targetRet = Type.getReturnType(this.targetDesc);
+            final boolean targetIsVoid = Type.VOID_TYPE.equals(targetRet);
+            final boolean usesCI = HookShape.usesCallbackInfo(kind);
+            if (usesCI && !targetIsVoid) {
+                if (!this.optional) {
+                    throw new IllegalStateException(
+                            "HEAD inject (ctor): CallbackInfo requires void target (id=" + this.id + ")."
+                    );
+                }
+                this.injectedAfterCtor = true;
+                return;
+            }
+
+            if (HookShape.requiresThis(kind)) {
+                HookShape.emitThisIfNeeded(this.mv, kind);
+            }
+            int local = 1; // constructor is always instance
+            if (HookShape.passesArgs(kind)) {
+                local = HookShape.emitArgs(this.mv, this.targetDesc, local);
+            }
+
+            int ciLocal = -1;
+            if (usesCI) {
+                ciLocal = newLocal(Type.getObjectType(CI_INTERNAL));
+                HookShape.newCallbackInfoIfNeeded(this.mv, kind, CI_INTERNAL, ciLocal);
+                HookShape.emitLoadCallbackInfoIfNeeded(this.mv, kind, ciLocal);
+            }
+
+            super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+            this.markChanged.run();
+            this.applied = true;
+
+            if (usesCI) {
+                // if (ci.isCancelled()) return;
+                super.visitVarInsn(Opcodes.ALOAD, ciLocal);
+                super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CI_INTERNAL, "isCancelled", "()Z", false);
+                final org.objectweb.asm.Label Lskip = new org.objectweb.asm.Label();
+                super.visitJumpInsn(Opcodes.IFEQ, Lskip);
+                super.visitInsn(Opcodes.RETURN);
+                super.visitLabel(Lskip);
+            }
+
+            this.injectedAfterCtor = true;
+        }
     }
 
     /**
