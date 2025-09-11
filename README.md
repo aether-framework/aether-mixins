@@ -69,7 +69,7 @@ Use the **annotation processor** to generate `mixins.yml` and a refmap from your
 <dependency>
     <groupId>de.splatgames.aether</groupId>
     <artifactId>aether-mixins-runtime</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
 </dependency>
 ```
 
@@ -77,7 +77,7 @@ Use the **annotation processor** to generate `mixins.yml` and a refmap from your
 
 ```groovy
 dependencies {
-    implementation 'de.splatgames.aether:aether-mixins-runtime:0.1.0-SNAPSHOT'
+    implementation 'de.splatgames.aether:aether-mixins-runtime:0.1.0'
 }
 ```
 
@@ -85,7 +85,7 @@ dependencies {
 
 ```kotlin
 dependencies {
-    implementation("de.splatgames.aether:aether-mixins-runtime:0.1.0-SNAPSHOT")
+    implementation("de.splatgames.aether:aether-mixins-runtime:0.1.0")
 }
 ```
 
