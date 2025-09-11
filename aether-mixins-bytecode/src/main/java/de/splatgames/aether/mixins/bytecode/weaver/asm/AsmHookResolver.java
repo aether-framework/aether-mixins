@@ -18,24 +18,17 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * ASM-based {@link HookResolver} implementation that loads a mixin class, scans its bytecode
- * for {@code @Inject}/{@code @Redirect} annotated static methods, and resolves exactly one
- * matching hook for a given {@link PlannedEntry}.
+ * ASM-based {@link HookResolver} that loads a mixin class, scans its bytecode
+ * for {@code @Inject}/{@code @Redirect} annotated static methods, and resolves
+ * exactly one matching hook for a given {@link PlannedEntry}.
  *
  * <p>Resolution workflow:</p>
  * <ol>
  *   <li>Load class bytes via {@link ClassSource}.</li>
  *   <li>Scan for static methods carrying the required annotation (via {@link HookScanner}).</li>
  *   <li>Filter by the planned {@code id} selection policy.</li>
- *   <li>Validate MVP constraints for the resulting candidate.</li>
+ *   <li>Perform minimal kind-specific validation where applicable.</li>
  * </ol>
- *
- * <p>MVP validation:</p>
- * <ul>
- *   <li><b>INJECT</b>: descriptor must be {@code ()V}.</li>
- *   <li><b>REDIRECT</b>: descriptor must equal the original call descriptor for static calls;
- *       for instance calls, the receiver type is prepended as first argument.</li>
- * </ul>
  *
  * <h3>Example</h3>
  * <blockquote><pre>
@@ -116,14 +109,8 @@ public final class AsmHookResolver implements HookResolver {
 
         final CandidateHook mi = matched.get(0);
 
-        // (3) Validate MVP constraints
-        if (entry.getKind() == PlannedEntry.Kind.INJECT) {
-            if (!"()V".equals(mi.desc)) {
-                problems.error(path, "INJECT hook must be ()V but was " + mi.desc +
-                        " at " + internal + "." + mi.name + mi.desc);
-                return Optional.empty();
-            }
-        } else {
+        // (3) Minimal validation for redirects (inject hooks are validated during weaving where full context is available)
+        if (entry.getKind() != PlannedEntry.Kind.INJECT) {
             final String expected = expectedRedirectHookDesc(
                     entry.getInvokeKind(), entry.getCallOwner(), entry.getCallDesc()
             );
