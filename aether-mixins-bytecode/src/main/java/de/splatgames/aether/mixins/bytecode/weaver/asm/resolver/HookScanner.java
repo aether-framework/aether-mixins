@@ -75,7 +75,7 @@ public final class HookScanner {
             public MethodVisitor visitMethod(final int access, final String name, final String desc,
                                              final String signature, final String @Nullable [] exceptions) {
 
-                // Only static methods are eligible in the MVP.
+                // Only static methods are eligible at this point.
                 if ((access & ACC_STATIC) == 0) {
                     return null;
                 }

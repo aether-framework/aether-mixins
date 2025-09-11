@@ -10,7 +10,7 @@ import java.util.Set;
 /**
  * Selection rules used by the planner to include/exclude mixins.
  *
- * <p><b>Semantics (MVP):</b></p>
+ * <p><b>Semantics:</b></p>
  * <ul>
  *   <li><b>Groups:</b> If {@code onlyGroups} is non-empty, a mixin must intersect it to be included.
  *       Any group in {@code disabledGroups} excludes a mixin.</li>

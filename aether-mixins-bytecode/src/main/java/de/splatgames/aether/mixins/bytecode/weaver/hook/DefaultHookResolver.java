@@ -17,33 +17,48 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Default {@link HookResolver} based on Java reflection.
+ * Default {@link HookResolver} implementation based on Java reflection.
  *
  * <h2>Resolution rules</h2>
  * <ol>
- *   <li>Load the mixin class by name (using the configured {@link ClassLoader}).</li>
- *   <li>Collect <em>declared</em> methods with matching annotation:
+ *   <li>Load the mixin class by name using the configured {@link ClassLoader}.</li>
+ *   <li>Collect <em>declared</em> methods with a matching annotation:
  *     <ul>
  *       <li>{@link PlannedEntry.Kind#INJECT} → {@link Inject @Inject}</li>
  *       <li>{@link PlannedEntry.Kind#REDIRECT} → {@link Redirect @Redirect}</li>
  *     </ul>
  *   </li>
  *   <li>Compute each method's <em>effective ID</em>:
- *       {@code annotation.id()} if non-empty, otherwise the method's simple name.</li>
- *   <li>Match candidate(s) by {@code plannedEntry.id}. If the planned ID is empty, accept the single candidate
- *       (error on 0 or &gt;1 to avoid ambiguity).</li>
- *   <li>Validate the selected method:
+ *       <code>annotation.id()</code> if non-empty, otherwise the method's simple name.</li>
+ *   <li>Match candidate(s) against the {@link PlannedEntry#getId() planned ID}:
  *     <ul>
- *       <li>Must be {@code static}.</li>
- *       <li>For INJECT (MVP): descriptor must be {@code ()V}.</li>
- *       <li>For REDIRECT (MVP): no deep signature checking beyond being {@code static} (compatibility with call site
- *           is verified by the weaver or later passes).</li>
+ *       <li>If the planned ID is empty → accept only when there is exactly one candidate.</li>
+ *       <li>If the planned ID is non-empty → accept candidates whose effective ID matches exactly.</li>
+ *       <li>Report an error if no match or more than one match is found.</li>
  *     </ul>
  *   </li>
- *   <li>Return {@link ResolvedHook} with internal owner name, method name, and JVM descriptor.</li>
+ *   <li>Validate the selected method:
+ *     <ul>
+ *       <li>Must be declared {@code static}.</li>
+ *       <li>The method signature must be compatible with the target injection or redirect site.</li>
+ *       <li>For instance method redirects, the receiver type is passed as the first parameter to the hook.</li>
+ *     </ul>
+ *   </li>
+ *   <li>Return a {@link ResolvedHook} containing the internal owner name, method name,
+ *       and the JVM descriptor of the resolved hook.</li>
  * </ol>
  *
- * <p>All diagnostics are recorded in {@code problems} using the supplied {@code path}.</p>
+ * <h2>Diagnostics</h2>
+ * <p>
+ * All diagnostics, such as missing hooks or signature mismatches, are reported to
+ * {@code problems} using the provided {@code path} as a human-readable context string.
+ * This allows callers to trace errors back to specific mixins and target methods.
+ * </p>
+ *
+ * <h2>Thread-safety</h2>
+ * <p>
+ * This resolver is not thread-safe. A new instance should be created for each weaving run.
+ * </p>
  *
  * @author Erik Pförtner
  * @since 0.1.0
@@ -119,13 +134,6 @@ public final class DefaultHookResolver implements HookResolver {
         if (!Modifier.isStatic(hook.getModifiers())) {
             problems.error(path, "Hook method must be static: " + sig(hook));
             return Optional.empty();
-        }
-        if (entry.getKind() == PlannedEntry.Kind.INJECT) {
-            final String desc = toDescriptor(hook);
-            if (!"()V".equals(desc)) {
-                problems.error(path, "INJECT hook must be ()V (MVP): found " + desc + " at " + sig(hook));
-                return Optional.empty();
-            }
         }
 
         final String owner = internalName(mixinClass);

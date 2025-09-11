@@ -32,7 +32,7 @@ import java.util.Set;
  * Content issues (missing fields, invalid values) are reported via {@link ConfigProblems};
  * only I/O failures are thrown as {@link IOException}.</p>
  *
- * <h2>Input shape (MVP)</h2>
+ * <h2>Input shape</h2>
  * <pre>{@code
  * {
  *   "schema": 1,

@@ -93,8 +93,6 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
  * }</pre></blockquote>
  *
  * @author Erik Pförtner
- * @apiNote The MVP targets direct method call redirection. Future versions may add support for
- * more fine-grained selection (instruction slicing), constructor/new-call pairs, and conditional/cancellable redirects.
  * @implSpec Backends must match on owner/name/descriptor (and kind/ordinal if provided) and replace only that instruction.
  * If multiple matches exist and {@link #ordinal()} is negative, the backend may choose the first match but must do so
  * deterministically. If weaving fails, safe-mode runtimes should leave the class unmodified and emit diagnostics.
@@ -220,6 +218,6 @@ public @interface Redirect {
          * {@code INVOKEINTERFACE} — interface method call.
          */
         INVOKEINTERFACE
-        // Note: INVOKEDYNAMIC intentionally not supported in MVP.
+        // Note: INVOKEDYNAMIC intentionally not supported at this time.
     }
 }

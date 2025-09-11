@@ -14,23 +14,39 @@ import java.util.Set;
 /**
  * Builds a {@link WeavePlan} from one or more {@link Refmap} documents and applies selection rules.
  *
- * <p><b>Process (MVP):</b></p>
+ * <h2>Process</h2>
  * <ol>
- *   <li>Flatten all {@link Refmap#getMixins()} across inputs.</li>
- *   <li>Filter by {@link SelectionOptions} (groups, requires).</li>
- *   <li>Transform {@link RefMixin} → {@link PlannedMixin}, {@link RefEntry} → {@link PlannedEntry}.</li>
- *   <li>Apply {@link ConflictResolver} to remove conflicting mixins.</li>
+ *   <li>Flatten all {@link Refmap#getMixins()} across inputs into a single stream of mixins.</li>
+ *   <li>Filter mixins according to {@link SelectionOptions} (e.g., groups, required flags).</li>
+ *   <li>Transform structures:
+ *     <ul>
+ *       <li>{@link RefMixin} → {@link PlannedMixin}</li>
+ *       <li>{@link RefEntry} → {@link PlannedEntry}</li>
+ *     </ul>
+ *   </li>
+ *   <li>Apply {@link ConflictResolver} to remove mixins that conflict with each other.</li>
  * </ol>
  *
- * <p><b>Assumptions:</b> Inputs are expected to have been validated (e.g., via
- * {@link Refmap#validate(ConfigProblems, String)} and nested validations). This planner
- * enforces basic non-null invariants but does not re-validate schema semantics.</p>
+ * <h2>Assumptions</h2>
+ * <p>
+ * Inputs are expected to have been validated beforehand
+ * (e.g., via {@link Refmap#validate(ConfigProblems, String)} and related nested validations).
+ * This planner enforces only basic non-null invariants and structural consistency,
+ * but does not perform full schema validation.
+ * </p>
  *
- * <p><b>Determinism:</b> The relative order of mixins after filtering is preserved up to conflict
- * resolution, which itself is deterministic by priority and class name.</p>
+ * <h2>Determinism</h2>
+ * <p>
+ * The relative order of mixins after filtering is preserved until conflict resolution,
+ * which itself is deterministic based on priority and class name.
+ * </p>
  *
- * <p><b>Complexity:</b> Filtering and mapping are O(n). Conflict resolution is O(n²) for the number
- * of selected mixins (acceptable in the MVP).</p>
+ * <h2>Complexity</h2>
+ * <ul>
+ *   <li>Filtering and mapping operations are O(n).</li>
+ *   <li>Conflict resolution is O(n²) relative to the number of selected mixins,
+ *       which is acceptable for typical mixin counts.</li>
+ * </ul>
  *
  * @author Erik Pförtner
  * @since 0.1.0

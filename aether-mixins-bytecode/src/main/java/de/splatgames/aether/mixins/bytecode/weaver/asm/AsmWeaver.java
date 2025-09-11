@@ -41,44 +41,51 @@ import static org.objectweb.asm.Opcodes.ASM9;
  * to target classes by injecting hooks at {@link Inject.At#HEAD}/{@link Inject.At#TAIL}
  * and redirecting specific call sites to static hook methods.
  *
- * <h2>Feature set (MVP)</h2>
+ * <h2>Supported features</h2>
  * <ul>
  *   <li><b>Inject</b>:
  *     <ul>
  *       <li>Join points: {@link Inject.At#HEAD} and {@link Inject.At#TAIL}.</li>
- *       <li>Hook signature must be {@code static} and {@code ()V}.</li>
+ *       <li>Hook methods must be {@code static}.</li>
+ *       <li>Method descriptors are fully supported and validated upstream.</li>
  *     </ul>
  *   </li>
  *   <li><b>Redirect</b>:
  *     <ul>
- *       <li>Rewrites a single call site (owner/name/desc/{@code kind}/ordinal) to {@code INVOKESTATIC} hook.</li>
- *       <li>Descriptor compatibility is validated upstream; for instance calls, receiver is prepended.</li>
+ *       <li>Rewrites a single call site (owner/name/descriptor/{@code kind}/ordinal)
+ *           to call a static hook method via {@code INVOKESTATIC}.</li>
+ *       <li>For instance calls, the original receiver is passed as the first argument
+ *           to the hook method.</li>
+ *       <li>Descriptor compatibility is validated before weaving.</li>
  *     </ul>
  *   </li>
  *   <li><b>Verification</b>:
  *     <ul>
- *       <li>{@link VerifyFrames#NONE}: no recomputation.</li>
- *       <li>{@link VerifyFrames#BASIC}/{@link VerifyFrames#STRICT}: recompute frames and maxs
- *           via {@link ClassWriter#COMPUTE_FRAMES} | {@link ClassWriter#COMPUTE_MAXS}.</li>
+ *       <li>{@link VerifyFrames#NONE}: no recomputation of stack frames.</li>
+ *       <li>{@link VerifyFrames#BASIC} or {@link VerifyFrames#STRICT}: recompute stack frames
+ *           and max values using {@link ClassWriter#COMPUTE_FRAMES} and {@link ClassWriter#COMPUTE_MAXS}.</li>
  *     </ul>
  *   </li>
  *   <li><b>Ordering</b>:
  *     <ul>
- *       <li>Deterministic ordering for multiple injections/redirects per target method:
- *           redirects → TAIL-injects (by priority asc, then id) → HEAD-injects (by priority asc, then id).</li>
+ *       <li>Deterministic ordering when multiple hooks target the same method:
+ *           <code>Redirects → TAIL-injects (by priority, then id) → HEAD-injects (by priority, then id)</code>.</li>
  *     </ul>
  *   </li>
  * </ul>
  *
  * <h2>Processing model</h2>
  * <ul>
- *   <li>All {@link PlannedMixin} entries are resolved to concrete hooks using {@link HookResolver}.</li>
- *   <li>Entries are grouped by target class and then by method signature (name+descriptor).</li>
- *   <li>Each target class is visited at most once; failures are collected in {@link ConfigProblems}.</li>
- *   <li>In safe mode, per-class errors are recorded and original bytes preserved; otherwise errors may propagate.</li>
+ *   <li>All {@link PlannedMixin} entries are resolved to concrete hooks using a {@link HookResolver}.</li>
+ *   <li>Entries are grouped by target class and then by method signature (name + descriptor).</li>
+ *   <li>Each target class is visited exactly once.</li>
+ *   <li>Failures are reported through {@link ConfigProblems}.</li>
+ *   <li>In safe mode, original class bytes are preserved when errors occur;
+ *       otherwise errors may propagate and abort the process.</li>
  * </ul>
  *
- * <p>Thread-safety: instances are not thread-safe; a single instance is expected per weaving run.</p>
+ * <p><b>Thread-safety:</b> This implementation is <em>not</em> thread-safe.
+ * A new instance should be created for each weaving run.</p>
  *
  * @author Erik Pförtner
  * @since 0.1.0
@@ -396,14 +403,17 @@ public final class AsmWeaver implements Weaver {
     /**
      * Derives the per-method signature key used to group specs within a class.
      *
-     * <p>In the current MVP, {@code namePlusDesc} already matches the key format, but this method
-     * centralizes potential future normalization (e.g., signature canonicalization).</p>
+     * <p>The key is the concatenation {@code name + descriptor}. Minor normalization is applied
+     * to avoid accidental whitespace mismatches.</p>
      *
-     * @param namePlusDesc a concatenation of method name and descriptor (e.g., {@code doWork(I)I}); never {@code null}
-     * @return the signature key (currently identical to input); never {@code null}
+     * @param namePlusDesc concatenation of method name and descriptor; never {@code null}
+     * @return normalized signature key; never {@code null}
      */
     @NotNull
     private String sigOf(@NotNull final String namePlusDesc) {
-        return namePlusDesc;
+        // defensive normalization without changing semantics
+        final String s = namePlusDesc.trim();
+        // collapse any accidental internal whitespace (shouldn't occur for JVM descriptors)
+        return s.indexOf(' ') >= 0 ? s.replaceAll("\\s+", "") : s;
     }
 }

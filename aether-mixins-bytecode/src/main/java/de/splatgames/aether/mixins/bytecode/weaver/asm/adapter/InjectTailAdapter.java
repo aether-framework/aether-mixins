@@ -106,7 +106,7 @@ public final class InjectTailAdapter extends MethodVisitor {
     private boolean applied = false;
 
     /**
-     * Constructs a new adapter that injects a static {@code ()V} hook before return instructions.
+     * Constructs a new adapter that injects a hook call at method entry.
      *
      * @param api         ASM API level to use
      * @param mv          downstream method visitor to delegate to; must not be {@code null}

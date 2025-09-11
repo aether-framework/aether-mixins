@@ -11,16 +11,14 @@ annotation-based API — inspired by SpongePowered Mixins, with a strong focus o
 
 ---
 
-## ✨ Features (v0.1.0 MVP)
+## ✨ Features (v0.1.0)
 
 - ✅ **Agent & In-App Weaving** — Use `-javaagent` for early weaving or attach a transformer at runtime
 - ✅ **Annotation API** — `@Mixin`, `@Inject(HEAD|TAIL)`, `@Redirect(...)`
 - ✅ **Refmap model** — YAML config + JSON refmaps to map symbolic specs to concrete `(owner, name, desc)`
-- ✅ **ASM backend** — Precise, minimal ASM visitors for the MVP join points
+- ✅ **ASM backend** — Precise, minimal ASM visitors for the join points
 - ✅ **Safety-first** — Optional safe-mode, frame recomputation policy, structured diagnostics
 - ✅ **JDK 17+** — Built and tested on modern LTS JVMs
-
-> The MVP focuses on a small, robust core you can build on. Additional join points and helpers are on the roadmap.
 
 ---
 
