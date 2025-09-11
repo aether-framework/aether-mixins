@@ -1,0 +1,7 @@
+version: 1
+mixins:
+  - name: e2e-virtual
+    classes: [ e2e.mixins.GreeterVirtualMixin ]
+runtime:
+  safe_mode: false
+  verify_frames: strict

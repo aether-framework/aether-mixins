@@ -1,0 +1,7 @@
+version: 1
+mixins:
+  - name: e2e-tail-multi
+    classes: [ "e2e.mixins.MultiTailMixin" ]
+runtime:
+  safe_mode: false
+  verify_frames: strict

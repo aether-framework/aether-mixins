@@ -1,0 +1,11 @@
+# src/e2e/resources/mixins_static.yml
+version: 1
+mixins:
+  - name: "e2e-invokestatic"
+    classes:
+      - "e2e.mixins.StaticCallerMixin"
+
+runtime:
+  safe_mode: true
+  verify_frames: strict
+  dump_classes_on_error: true

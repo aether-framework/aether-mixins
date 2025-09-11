@@ -1,0 +1,9 @@
+version: 1
+mixins:
+  - name: "e2e-invokespecial-private"
+    classes: [e2e.mixins.PrivateSpecialMixin]
+
+runtime:
+  safe_mode: true
+  verify_frames: strict
+  dump_classes_on_error: true

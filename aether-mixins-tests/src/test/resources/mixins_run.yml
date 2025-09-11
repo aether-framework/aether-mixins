@@ -1,0 +1,5 @@
+mixins: []
+runtime:
+  safe_mode: true
+  verify_frames: strict
+  dump_classes_on_error: false

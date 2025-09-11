@@ -1,0 +1,7 @@
+version: 1
+mixins:
+  - name: e2e-optional
+    classes: [ e2e.mixins.GreeterOptionalBadCall ]
+runtime:
+  safe_mode: true
+  verify_frames: strict

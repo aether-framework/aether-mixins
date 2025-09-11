@@ -1,0 +1,9 @@
+version: 1
+mixins:
+  - name: e2e-priority-head
+    classes:
+      - e2e.mixins.GreeterInjectHeadLow
+      - e2e.mixins.GreeterInjectHeadHigh
+runtime:
+  safe_mode: false
+  verify_frames: strict

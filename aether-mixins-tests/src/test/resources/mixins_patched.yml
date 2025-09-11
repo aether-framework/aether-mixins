@@ -1,0 +1,10 @@
+version: 1
+mixins:
+  - name: "e2e-basic"
+    classes:
+      - "e2e.mixins.GreeterMixin"
+
+runtime:
+  safe_mode: false
+  verify_frames: strict
+  dump_classes_on_error: true

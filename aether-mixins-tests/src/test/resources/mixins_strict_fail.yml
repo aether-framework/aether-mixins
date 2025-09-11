@@ -1,0 +1,7 @@
+version: 1
+mixins:
+  - name: e2e-strict-fail
+    classes: [ e2e.mixins.BadRedirectStrictMixin ]
+runtime:
+  safe_mode: false   # <— fail hard
+  verify_frames: strict

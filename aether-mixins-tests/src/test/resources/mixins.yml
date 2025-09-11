@@ -1,0 +1,7 @@
+version: 1
+mixins:
+  - name: classpath
+    classes: [ "it.config.mixins.HeadA" ]
+runtime:
+  safe_mode: false
+  verify_frames: strict

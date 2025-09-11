@@ -1,0 +1,7 @@
+version: 1
+mixins:
+  - name: e2e-frames-trycatch
+    classes: [ "e2e.mixins.FrameCaseTailMixin" ]
+runtime:
+  safe_mode: false
+  verify_frames: strict
