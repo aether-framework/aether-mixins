@@ -142,6 +142,18 @@ public @interface Inject {
     boolean remap() default true;
 
     /**
+     * Cancellation support for this injection point.
+     *
+     * <p>Callbacks marked {@code cancellable = true} may signal cancellation via a backend-defined mechanism
+     * (e.g., a {@link CallbackInfo} or {@link CallbackInfoReturnable} parameter).
+     * When a callback cancels, the original target method must abort
+     * its execution as soon as possible.</p>
+     *
+     * @return {@code true} if the callback is allowed to cancel the target method; {@code false} otherwise
+     */
+    boolean cancellable() default false;
+
+    /**
      * Well-known injection points.
      */
     enum At {

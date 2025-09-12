@@ -17,7 +17,7 @@ import java.util.Objects;
  * <h2>Usage</h2>
  * <blockquote><pre>
  * {@code
- * @Inject(method = "compute", at = @At("HEAD"), cancellable = true)
+ * @Inject(method = "compute(I)I", at = Inject.At.HEAD, cancellable = true)
  * private static void onCompute(final int input, final CallbackInfoReturnable<Integer> cir) {
  *     if (input < 0) {
  *         cir.setReturnValue(0);
