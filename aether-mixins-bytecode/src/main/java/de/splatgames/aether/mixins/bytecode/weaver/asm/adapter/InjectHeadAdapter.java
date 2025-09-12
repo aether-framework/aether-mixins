@@ -239,7 +239,6 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
             return; // only once
         }
         if (opcode == Opcodes.INVOKESPECIAL && "<init>".equals(name)) {
-            // jetzt direkt NACH dem ctor-call injizieren (gleiche Logik wie bisher in visitCode())
             final boolean instance = HookShape.isInstance(this.targetAccess);
             final @Nullable HookShape.Kind kind = HookShape.match(
                     instance, this.ownerInternal, this.targetDesc, this.hook.desc(), CI_INTERNAL
