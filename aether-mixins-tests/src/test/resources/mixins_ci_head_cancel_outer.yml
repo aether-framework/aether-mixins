@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-ci-head-cancel-outer
+    classes:
+      - e2e.cicir.mixins.HeadCiCancelOuterMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

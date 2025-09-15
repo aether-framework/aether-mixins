@@ -179,4 +179,105 @@ public class CiCirE2E {
         assertFalse(out.contains("CTOR:BODY"), () -> "Ctor body must be skipped\n" + r.stdout);
     }
 
+    @Test
+    void tailCirOverridesAcrossTryCatchFinally() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_cir_tail_tryfinally.yml");
+        assertNotNull(url, "mixins_cir_tail_tryfinally.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.TryFinallyMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+", "").trim();
+
+        // Egal welcher Pfad (true/false), TAIL-CIR setzt final "OVR"
+        assertTrue(out.contains("RET=OVR"), () -> "Expected overridden return via TAIL-CIR\n" + r.stdout);
+        assertFalse(out.contains("RET=A") || out.contains("RET=B"), () -> "Original returns must be overridden\n" + r.stdout);
+    }
+
+    @Test
+    void tailCirOverridesInSynchronizedMethod() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_cir_tail_sync.yml");
+        assertNotNull(url, "mixins_cir_tail_sync.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.SyncMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+", "").trim();
+
+        assertTrue(out.contains("RET=SYNC"), () -> "Expected overridden return in synchronized method\n" + r.stdout);
+        assertFalse(out.contains("RET=ORIG"), () -> "Original must be replaced\n" + r.stdout);
+    }
+
+    @Test
+    void headCiCancelPreventsNestedCall() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_ci_head_cancel_outer.yml");
+        assertNotNull(url, "mixins_ci_head_cancel_outer.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.NestedCancelMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+", " ").trim();
+
+        assertTrue(out.contains("[HEAD-CANCEL]"), () -> "Expected head cancel marker\n" + r.stdout);
+        assertFalse(out.contains("INNER"), () -> "Inner call must not run when outer is cancelled\n" + r.stdout);
+    }
+
+    @Test
+    void tailCirOverrideStaticWide() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_cir_tail_static_wide.yml");
+        assertNotNull(url, "mixins_cir_tail_static_wide.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.StaticWideMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+","").trim();
+        assertTrue(out.contains("RET=123"), () -> "Expected overridden return via TAIL-CIR\n" + r.stdout);
+    }
+
+    @Test
+    void headThisArgsCiLoadsCorrectly() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_ci_head_thisargs.yml");
+        assertNotNull(url, "mixins_ci_head_thisargs.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.ThisArgsCiMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+","").trim();
+        assertTrue(out.contains("[HEAD:ok]BODY"), () -> "Expected HEAD side-effect before BODY\n" + r.stdout);
+    }
+
+    @Test
+    void tailCirPriorityLowWins() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_cir_tail_priority.yml");
+        assertNotNull(url, "mixins_cir_tail_priority.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.PriorTailMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+","").trim();
+        assertTrue(out.contains("RET=LOW"), () -> "Lower priority wins with current tail wrapping order\n" + r.stdout);
+        assertFalse(out.contains("RET=HIGH"));
+    }
+
+    @Test
+    void tailCirNullReturnRefType() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_cir_tail_null.yml");
+        assertNotNull(url, "mixins_cir_tail_null.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.NullTailMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+","").trim();
+        assertTrue(out.contains("RET=null"), () -> "Expected null return via TAIL-CIR\n" + r.stdout);
+    }
+
+    @Test
+    void invalidThisCiOnStaticFails() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_invalid_thisci_on_static.yml");
+        assertNotNull(url, "mixins_invalid_thisci_on_static.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.BadThisCiStaticMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertNotEquals(0, r.exitCode, () -> "Expected non-zero exit for THIS_CI on static\n--- STDERR ---\n" + r.stderr);
+    }
 }

@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-cir-tail-sync
+    classes:
+      - e2e.cicir.mixins.TailCirSyncMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict
