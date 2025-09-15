@@ -221,31 +221,31 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
             int retLocal = -1;
             if (!isVoid) {
                 retLocal = newLocal(ret);
-                HookShape.storeReturnValueBeforeTail(this.mv, this.targetDesc, retLocal);
+                HookShape.storeReturnValueBeforeTail(this, this.targetDesc, retLocal);
             }
 
             if (HookShape.requiresThis(kind)) {
-                HookShape.emitThisIfNeeded(this.mv, kind);
+                HookShape.emitThisIfNeeded(this, kind);
             }
             int local = instance ? 1 : 0;
             if (HookShape.passesArgs(kind)) {
-                local = HookShape.emitArgs(this.mv, this.targetDesc, local);
+                local = HookShape.emitArgs(this, this.targetDesc, local);
             }
 
             int cbLocal = -1;
             if (usesCI) {
                 cbLocal = newLocal(Type.getObjectType(CI_INTERNAL));
-                HookShape.newCallbackInfoIfNeeded(this.mv, kind, CI_INTERNAL, cbLocal);
-                HookShape.emitLoadCallbackInfoIfNeeded(this.mv, kind, cbLocal);
+                HookShape.newCallbackInfoIfNeeded(this, kind, CI_INTERNAL, cbLocal, /*method*/ "tail:" + this.id, /*cancellable*/ false);
+                HookShape.emitLoadCallbackInfoIfNeeded(this, kind, cbLocal);
             } else if (usesCIR) {
                 cbLocal = newLocal(Type.getObjectType(CIR_INTERNAL));
-                HookShape.newCallbackInfoReturnableIfNeeded(this.mv, kind, CIR_INTERNAL, cbLocal);
+                HookShape.newCallbackInfoReturnableIfNeeded(this, kind, CIR_INTERNAL, cbLocal, /*method*/ "tail:" + this.id, /*cancellable*/ false);
 
-                this.mv.visitVarInsn(ALOAD, cbLocal);
-                HookShape.loadReturnValueFromLocal(this.mv, this.targetDesc, retLocal);
-                HookShape.emitCirSetReturn(this.mv, CIR_INTERNAL, ret);
+                this.visitVarInsn(ALOAD, cbLocal);
+                HookShape.loadReturnValueFromLocal(this, this.targetDesc, retLocal);
+                HookShape.emitCirSetReturn(this, CIR_INTERNAL, ret);
 
-                HookShape.emitLoadCallbackInfoReturnableIfNeeded(this.mv, kind, cbLocal);
+                HookShape.emitLoadCallbackInfoReturnableIfNeeded(this, kind, cbLocal);
             }
 
             super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
@@ -254,10 +254,10 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
 
             if (!isVoid) {
                 if (usesCIR) {
-                    this.mv.visitVarInsn(ALOAD, cbLocal);
-                    HookShape.emitCirGetReturn(this.mv, CIR_INTERNAL, ret);
+                    this.visitVarInsn(ALOAD, cbLocal);
+                    HookShape.emitCirGetReturn(this, CIR_INTERNAL, ret);
                 } else {
-                    HookShape.loadReturnValueFromLocal(this.mv, this.targetDesc, retLocal);
+                    HookShape.loadReturnValueFromLocal(this, this.targetDesc, retLocal);
                 }
             }
 

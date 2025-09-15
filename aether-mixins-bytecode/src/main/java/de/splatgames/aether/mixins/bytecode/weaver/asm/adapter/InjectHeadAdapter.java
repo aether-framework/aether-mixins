@@ -209,23 +209,23 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
 
         // Marshal operands
         if (HookShape.requiresThis(kind)) {
-            HookShape.emitThisIfNeeded(this.mv, kind);
+            HookShape.emitThisIfNeeded(this, kind);
         }
         int local = instance ? 1 : 0;
         if (HookShape.passesArgs(kind)) {
-            local = HookShape.emitArgs(this.mv, this.targetDesc, local);
+            local = HookShape.emitArgs(this, this.targetDesc, local);
         }
 
         // Create and load CI/CIR if needed
         int cbLocal = -1;
         if (usesCI) {
             cbLocal = newLocal(Type.getObjectType(CI_INTERNAL));
-            HookShape.newCallbackInfoIfNeeded(this.mv, kind, CI_INTERNAL, cbLocal);
-            HookShape.emitLoadCallbackInfoIfNeeded(this.mv, kind, cbLocal);
+            HookShape.newCallbackInfoIfNeeded(this, kind, CI_INTERNAL, cbLocal, this.methodName, true);
+            HookShape.emitLoadCallbackInfoIfNeeded(this, kind, cbLocal);
         } else if (usesCIR) {
             cbLocal = newLocal(Type.getObjectType(CIR_INTERNAL));
-            HookShape.newCallbackInfoReturnableIfNeeded(this.mv, kind, CIR_INTERNAL, cbLocal);
-            HookShape.emitLoadCallbackInfoReturnableIfNeeded(this.mv, kind, cbLocal);
+            HookShape.newCallbackInfoReturnableIfNeeded(this, kind, CIR_INTERNAL, cbLocal, this.methodName, true);
+            HookShape.emitLoadCallbackInfoReturnableIfNeeded(this, kind, cbLocal);
         }
 
         // Call hook
@@ -250,8 +250,8 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
             super.visitJumpInsn(Opcodes.IFEQ, LskipCir);
 
             super.visitVarInsn(Opcodes.ALOAD, cbLocal);
-            HookShape.emitCirGetReturn(this.mv, CIR_INTERNAL, targetRet);
-            HookShape.emitReturnFor(this.mv, targetRet);
+            HookShape.emitCirGetReturn(this, CIR_INTERNAL, targetRet);
+            HookShape.emitReturnFor(this, targetRet);
 
             super.visitLabel(LskipCir);
         }
@@ -271,6 +271,12 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
         if (this.injectedAfterCtor) {
             return; // only once
         }
+
+        if (owner.equals("de/splatgames/aether/mixins/core/api/CallbackInfo")
+                || owner.equals("de/splatgames/aether/mixins/core/api/CallbackInfoReturnable")) {
+            return;
+        }
+
         if (opcode == Opcodes.INVOKESPECIAL && "<init>".equals(name)) {
             final boolean instance = HookShape.isInstance(this.targetAccess);
             @Nullable final HookShape.Kind kind = HookShape.match(
@@ -301,18 +307,18 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
             }
 
             if (HookShape.requiresThis(kind)) {
-                HookShape.emitThisIfNeeded(this.mv, kind);
+                HookShape.emitThisIfNeeded(this, kind);
             }
             int local = 1; // constructor is always instance
             if (HookShape.passesArgs(kind)) {
-                local = HookShape.emitArgs(this.mv, this.targetDesc, local);
+                local = HookShape.emitArgs(this, this.targetDesc, local);
             }
 
             int ciLocal = -1;
             if (usesCI) {
                 ciLocal = newLocal(Type.getObjectType(CI_INTERNAL));
-                HookShape.newCallbackInfoIfNeeded(this.mv, kind, CI_INTERNAL, ciLocal);
-                HookShape.emitLoadCallbackInfoIfNeeded(this.mv, kind, ciLocal);
+                HookShape.newCallbackInfoIfNeeded(this, kind, CI_INTERNAL, ciLocal, this.methodName, true);
+                HookShape.emitLoadCallbackInfoIfNeeded(this, kind, ciLocal);
             }
 
             super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);

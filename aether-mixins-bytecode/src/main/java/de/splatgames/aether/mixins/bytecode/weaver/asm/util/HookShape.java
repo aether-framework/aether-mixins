@@ -465,13 +465,19 @@ public final class HookShape {
      * @param kind           matched hook shape; must not be {@code null}
      * @param ciInternalName internal JVM name of {@code CallbackInfo}; must not be {@code null} if {@code kind} uses CI
      * @param ciLocal        local slot index to store the new instance (must be a free local)
+     * @param methodName     name of the target method (for debugging/logging purposes)
+     * @param cancellable    whether the target method is cancellable (for debugging/logging purposes)
      * @return {@code ciLocal} if a new instance was created; {@code -1} if the shape does not use {@code CallbackInfo}
      * @throws IllegalArgumentException if the shape uses CI but {@code ciInternalName} is {@code null}
      */
-    public static int newCallbackInfoIfNeeded(@NotNull final MethodVisitor mv,
-                                              @NotNull final Kind kind,
-                                              @Nullable final String ciInternalName,
-                                              final int ciLocal) {
+    public static int newCallbackInfoIfNeeded(
+            @NotNull final MethodVisitor mv,
+            @NotNull final Kind kind,
+            @Nullable final String ciInternalName,
+            final int ciLocal,
+            @NotNull final String methodName,
+            final boolean cancellable
+    ) {
         if (!kind.usesCallbackInfo()) {
             return -1;
         }
@@ -480,7 +486,9 @@ public final class HookShape {
         }
         mv.visitTypeInsn(Opcodes.NEW, ciInternalName);
         mv.visitInsn(Opcodes.DUP);
-        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, ciInternalName, "<init>", "()V", false);
+        mv.visitLdcInsn(methodName);
+        mv.visitInsn(cancellable ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, ciInternalName, "<init>", "(Ljava/lang/String;Z)V", false);
         mv.visitVarInsn(Opcodes.ASTORE, ciLocal);
         return ciLocal;
     }
@@ -556,10 +564,19 @@ public final class HookShape {
      * @param kind            matched hook shape; must not be {@code null}
      * @param cirInternalName internal JVM name of {@code CallbackInfoReturnable}; must not be {@code null} if {@code kind} uses CIR
      * @param cirLocal        local slot index to store the new instance (must be a free local)
+     * @param methodName      name of the target method (for debugging/logging purposes)
+     * @param cancellable     whether the target method is cancellable (for debugging/logging purposes)
      * @return {@code cirLocal} if a new instance was created; {@code -1} if the shape does not use {@code CallbackInfoReturnable}
      * @throws IllegalArgumentException if the shape uses CIR but {@code cirInternalName} is {@code null}
      */
-    public static int newCallbackInfoReturnableIfNeeded(@NotNull final MethodVisitor mv, @NotNull final Kind kind, @Nullable final String cirInternalName, final int cirLocal) {
+    public static int newCallbackInfoReturnableIfNeeded(
+            @NotNull final MethodVisitor mv,
+            @NotNull final Kind kind,
+            @Nullable final String cirInternalName,
+            final int cirLocal,
+            @NotNull final String methodName,
+            final boolean cancellable
+    ) {
         if (!kind.usesCallbackInfoReturnable()) {
             return -1;
         }
@@ -568,7 +585,9 @@ public final class HookShape {
         }
         mv.visitTypeInsn(Opcodes.NEW, cirInternalName);
         mv.visitInsn(Opcodes.DUP);
-        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, cirInternalName, "<init>", "()V", false);
+        mv.visitLdcInsn(methodName);
+        mv.visitInsn(cancellable ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, cirInternalName, "<init>", "(Ljava/lang/String;Z)V", false);
         mv.visitVarInsn(Opcodes.ASTORE, cirLocal);
         return cirLocal;
     }
@@ -624,15 +643,43 @@ public final class HookShape {
     }
 
     /**
-     * Emits a call to {@code CallbackInfoReturnable.getReturn()}.
+     * Emits a call to {@code CallbackInfoReturnable.getReturn()} and casts/unboxes the result to the expected return type.
      *
      * @param mv          downstream method visitor; must not be {@code null}
      * @param cirInternal internal JVM name of {@code CallbackInfoReturnable}; must not be {@code null}
      * @param ret         the return type of the target method; must not be {@code null}
+     * @throws IllegalArgumentException if the return type is {@code void} or unsupported
      */
-    public static void emitCirGetReturn(@NotNull final MethodVisitor mv, @NotNull final String cirInternal, @NotNull final Type ret) {
-        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "getReturn", cirGetterDescFor(ret), false);
+    public static void emitCirGetReturn(@NotNull final MethodVisitor mv,
+                                        @NotNull final String cirInternal,
+                                        @NotNull final Type ret) {
+        switch (ret.getSort()) {
+            case Type.VOID -> throw new IllegalArgumentException("VOID has no return value");
+            case Type.BOOLEAN ->
+                    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "getReturnValueAsBoolean", "()Z", false);
+            case Type.BYTE ->
+                    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "getReturnValueAsByte", "()B", false);
+            case Type.SHORT ->
+                    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "getReturnValueAsShort", "()S", false);
+            case Type.CHAR ->
+                    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "getReturnValueAsChar", "()C", false);
+            case Type.INT ->
+                    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "getReturnValueAsInt", "()I", false);
+            case Type.LONG ->
+                    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "getReturnValueAsLong", "()J", false);
+            case Type.FLOAT ->
+                    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "getReturnValueAsFloat", "()F", false);
+            case Type.DOUBLE ->
+                    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "getReturnValueAsDouble", "()D", false);
+            case Type.ARRAY, Type.OBJECT -> {
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "getReturnValue", "()Ljava/lang/Object;", false);
+                // Cast to the expected reference/array type
+                mv.visitTypeInsn(Opcodes.CHECKCAST, ret.getInternalName());
+            }
+            default -> throw new IllegalArgumentException("Unsupported return type for CIR get: " + ret);
+        }
     }
+
 
     /**
      * Emits a call to {@code CallbackInfoReturnable.setReturn(R)}.
@@ -641,8 +688,48 @@ public final class HookShape {
      * @param cirInternal internal JVM name of {@code CallbackInfoReturnable}; must not be {@code null}
      * @param ret         the return type of the target method; must not be {@code null}
      */
-    public static void emitCirSetReturn(@NotNull final MethodVisitor mv, @NotNull final String cirInternal, @NotNull final Type ret) {
-        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "setReturn", cirSetterDescFor(ret), false);
+    public static void emitCirSetReturn(@NotNull final MethodVisitor mv,
+                                        @NotNull final String cirInternal,
+                                        @NotNull final Type ret) {
+        switch (ret.getSort()) {
+            case Type.VOID -> throw new IllegalArgumentException("VOID has no return value");
+            case Type.BOOLEAN -> {
+                // Stack: ..., cir, (Z)
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "setReturnValue", "(Ljava/lang/Object;)V", false);
+            }
+            case Type.BYTE -> {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Byte", "valueOf", "(B)Ljava/lang/Byte;", false);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "setReturnValue", "(Ljava/lang/Object;)V", false);
+            }
+            case Type.SHORT -> {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Short", "valueOf", "(S)Ljava/lang/Short;", false);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "setReturnValue", "(Ljava/lang/Object;)V", false);
+            }
+            case Type.CHAR -> {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Character", "valueOf", "(C)Ljava/lang/Character;", false);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "setReturnValue", "(Ljava/lang/Object;)V", false);
+            }
+            case Type.INT -> {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "setReturnValue", "(Ljava/lang/Object;)V", false);
+            }
+            case Type.LONG -> {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "setReturnValue", "(Ljava/lang/Object;)V", false);
+            }
+            case Type.FLOAT -> {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Float", "valueOf", "(F)Ljava/lang/Float;", false);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "setReturnValue", "(Ljava/lang/Object;)V", false);
+            }
+            case Type.DOUBLE -> {
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "setReturnValue", "(Ljava/lang/Object;)V", false);
+            }
+            case Type.ARRAY, Type.OBJECT ->
+                    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, cirInternal, "setReturnValue", "(Ljava/lang/Object;)V", false);
+            default -> throw new IllegalArgumentException("Unsupported return type for CIR set: " + ret);
+        }
     }
 
     /**
