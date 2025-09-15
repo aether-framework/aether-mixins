@@ -123,4 +123,60 @@ public class CiCirE2E {
         assertTrue(out.contains("[HEAD]"), () -> "Expected HEAD marker\n" + r.stdout);
         assertFalse(out.contains("BODY"), () -> "Body must be skipped by CI cancel\n" + r.stdout);
     }
+
+    @Test
+    void headCiNoCancelBodyRuns() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_ci_head_nocancel.yml");
+        assertNotNull(url, "mixins_ci_head_nocancel.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.CancelVoidMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+
+        var out = r.stdout.replaceAll("\\s+", "").trim();
+        assertTrue(out.contains("[HEAD]BODY"), () -> "Expected HEAD then BODY\n" + r.stdout);
+    }
+
+    @Test
+    void headCirCancelSetsReturn() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_cir_head_cancel_set.yml");
+        assertNotNull(url, "mixins_cir_head_cancel_set.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.HeadCirIntMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+
+        var out = r.stdout.replaceAll("\\s+", " ").trim();
+        assertTrue(out.contains("RET=42"), () -> "Expected replacement return 42\n" + r.stdout);
+        assertFalse(out.contains("RET=7"), () -> "Original must be skipped\n" + r.stdout);
+    }
+
+    @Test
+    void headCirCancelWithoutSetReturn() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_cir_head_cancel_noset.yml");
+        assertNotNull(url, "mixins_cir_head_cancel_noset.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.HeadCirIntMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+
+        var out = r.stdout.replaceAll("\\s+", "").trim();
+        assertTrue(out.contains("RET=0"), () -> "Expected default int return (0) when cancelled w/o setReturn\n" + r.stdout);
+        assertFalse(out.contains("RET=7"), () -> "Original must not appear\n" + r.stdout);
+    }
+
+    @Test
+    void headCiCancelCtorSkipsBody() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_ci_head_ctor_cancel.yml");
+        assertNotNull(url, "mixins_ci_head_ctor_cancel.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.CtorCancelMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+
+        var out = r.stdout.replaceAll("\\s+", " ").trim();
+        assertTrue(out.contains("[HEAD-CI]"), () -> "Expected HEAD-CI marker\n" + r.stdout);
+        assertFalse(out.contains("CTOR:BODY"), () -> "Ctor body must be skipped\n" + r.stdout);
+    }
+
 }
