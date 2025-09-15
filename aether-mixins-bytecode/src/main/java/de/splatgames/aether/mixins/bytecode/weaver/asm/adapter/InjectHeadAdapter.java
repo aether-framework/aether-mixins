@@ -45,6 +45,11 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
     private static final String CI_INTERNAL = "de/splatgames/aether/mixins/core/api/CallbackInfo";
 
     /**
+     * Internal JVM class name of {@link de.splatgames.aether.mixins.core.api.CallbackInfoReturnable CallbackInfoReturnable}.
+     */
+    private static final String CIR_INTERNAL = "de/splatgames/aether/mixins/core/api/CallbackInfoReturnable";
+
+    /**
      * The resolved hook (owner/name/desc) to invoke at method entry.
      */
     @NotNull
@@ -171,28 +176,38 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
             return;
         }
         final boolean instance = HookShape.isInstance(this.targetAccess);
-        @Nullable final HookShape.Kind kind = HookShape.match(instance, this.ownerInternal, this.targetDesc, this.hook.desc(), CI_INTERNAL);
+        @Nullable final HookShape.Kind kind = HookShape.match(
+                instance, this.ownerInternal, this.targetDesc, this.hook.desc(), CI_INTERNAL, CIR_INTERNAL
+        );
 
         if (kind == null) {
             if (!this.optional) {
-                throw new IllegalStateException("HEAD inject: incompatible hook signature for id=" + this.id + " hook=" + this.hook.owner() + "." + this.hook.name() + this.hook.desc());
+                throw new IllegalStateException("HEAD inject: incompatible hook signature for id=" + this.id +
+                        " hook=" + this.hook.owner() + "." + this.hook.name() + this.hook.desc());
             }
-            // Optional skip.
-            return;
+            return; // optional skip
         }
 
         final Type targetRet = Type.getReturnType(this.targetDesc);
         final boolean targetIsVoid = Type.VOID_TYPE.equals(targetRet);
-        final boolean usesCI = HookShape.usesCallbackInfo(kind);
+        final boolean usesCI = kind.usesCallbackInfo();
+        final boolean usesCIR = kind.usesCallbackInfoReturnable();
 
+        // Enforce CI for void, CIR for non-void
         if (usesCI && !targetIsVoid) {
             if (!this.optional) {
                 throw new IllegalStateException("HEAD inject: CallbackInfo requires void target (id=" + this.id + ").");
             }
-            // Optional skip.
+            return;
+        }
+        if (usesCIR && targetIsVoid) {
+            if (!this.optional) {
+                throw new IllegalStateException("HEAD inject: CallbackInfoReturnable requires non-void target (id=" + this.id + ").");
+            }
             return;
         }
 
+        // Marshal operands
         if (HookShape.requiresThis(kind)) {
             HookShape.emitThisIfNeeded(this.mv, kind);
         }
@@ -201,27 +216,45 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
             local = HookShape.emitArgs(this.mv, this.targetDesc, local);
         }
 
-        int ciLocal = -1;
+        // Create and load CI/CIR if needed
+        int cbLocal = -1;
         if (usesCI) {
-            ciLocal = newLocal(Type.getObjectType(CI_INTERNAL));
-            HookShape.newCallbackInfoIfNeeded(this.mv, kind, CI_INTERNAL, ciLocal);
-            HookShape.emitLoadCallbackInfoIfNeeded(this.mv, kind, ciLocal);
+            cbLocal = newLocal(Type.getObjectType(CI_INTERNAL));
+            HookShape.newCallbackInfoIfNeeded(this.mv, kind, CI_INTERNAL, cbLocal);
+            HookShape.emitLoadCallbackInfoIfNeeded(this.mv, kind, cbLocal);
+        } else if (usesCIR) {
+            cbLocal = newLocal(Type.getObjectType(CIR_INTERNAL));
+            HookShape.newCallbackInfoReturnableIfNeeded(this.mv, kind, CIR_INTERNAL, cbLocal);
+            HookShape.emitLoadCallbackInfoReturnableIfNeeded(this.mv, kind, cbLocal);
         }
 
+        // Call hook
         super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
         this.markChanged.run();
         this.applied = true;
 
+        // Early return branches
         if (usesCI) {
             // if (ci.isCancelled()) return;
-            super.visitVarInsn(Opcodes.ALOAD, ciLocal);
+            super.visitVarInsn(Opcodes.ALOAD, cbLocal);
             super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CI_INTERNAL, "isCancelled", "()Z", false);
             final Label Lskip = new Label();
             super.visitJumpInsn(Opcodes.IFEQ, Lskip);
             super.visitInsn(Opcodes.RETURN);
             super.visitLabel(Lskip);
-        }
+        } else if (usesCIR) {
+            // if (cir.isCancelled()) return cir.getReturn();
+            super.visitVarInsn(Opcodes.ALOAD, cbLocal);
+            super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CIR_INTERNAL, "isCancelled", "()Z", false);
+            final Label LskipCir = new Label();
+            super.visitJumpInsn(Opcodes.IFEQ, LskipCir);
 
+            super.visitVarInsn(Opcodes.ALOAD, cbLocal);
+            HookShape.emitCirGetReturn(this.mv, CIR_INTERNAL, targetRet);
+            HookShape.emitReturnFor(this.mv, targetRet);
+
+            super.visitLabel(LskipCir);
+        }
     }
 
     @Override
@@ -240,8 +273,8 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
         }
         if (opcode == Opcodes.INVOKESPECIAL && "<init>".equals(name)) {
             final boolean instance = HookShape.isInstance(this.targetAccess);
-            final @Nullable HookShape.Kind kind = HookShape.match(
-                    instance, this.ownerInternal, this.targetDesc, this.hook.desc(), CI_INTERNAL
+            @Nullable final HookShape.Kind kind = HookShape.match(
+                    instance, this.ownerInternal, this.targetDesc, this.hook.desc(), CI_INTERNAL, CIR_INTERNAL
             );
             if (kind == null) {
                 if (!this.optional) {
