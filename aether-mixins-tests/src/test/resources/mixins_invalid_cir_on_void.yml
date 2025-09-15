@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-invalid-cir-void
+    classes:
+      - e2e.cicir.mixins.InvalidCirVoidMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

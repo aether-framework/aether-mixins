@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-ci-head-void-cancel
+    classes:
+      - e2e.cicir.mixins.HeadCiVoidCancelMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

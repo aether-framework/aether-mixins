@@ -1,0 +1,126 @@
+package e2e.cicir;
+
+import de.splatgames.aether.mixins.testkit.JvmRunner;
+import org.junit.jupiter.api.Test;
+
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+public class CiCirE2E {
+
+    // --- HEAD: CI (void) cancels early ---
+    @Test
+    void headCiCancelsVoidTarget() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_ci_head_void_cancel.yml");
+        assertNotNull(url, "mixins_ci_head_void_cancel.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        // Target prints "ORIG-VOID" if body runs; CI should cancel -> expect "HEAD-CI-CANCELLED"
+        var r = JvmRunner.runWithAgent("e2e.cicir.CiCiVoidMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+", " ").trim();
+        assertTrue(out.contains("HEAD-CI-CANCELLED"), () -> "Expected HEAD-CI-CANCELLED in output\n" + r.stdout);
+        assertFalse(out.contains("ORIG-VOID"), () -> "Body must be skipped by CI cancel\n" + r.stdout);
+    }
+
+    // --- HEAD: CIR (non-void) cancels and returns replacement value ---
+    @Test
+    void headCirCancelsNonVoidReturnsReplacement() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_cir_head_nonvoid_cancel.yml");
+        assertNotNull(url, "mixins_cir_head_nonvoid_cancel.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        // Target would return 7; CIR cancels and returns 42 instead.
+        var r = JvmRunner.runWithAgent("e2e.cicir.CirHeadNonVoidMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+", " ").trim();
+        assertTrue(out.contains("RET=42"), () -> "Expected replacement return value via CIR (42)\n" + r.stdout);
+        assertFalse(out.contains("RET=7"), () -> "Original value must be skipped\n" + r.stdout);
+    }
+
+    // --- TAIL: CIR overrides final return value ---
+    @Test
+    void tailCirOverridesReturn() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_cir_tail_override.yml");
+        assertNotNull(url, "mixins_cir_tail_override.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        // Target returns "ORIG"; TAIL CIR sets "TAIL-OVERRIDE"
+        var r = JvmRunner.runWithAgent("e2e.cicir.CirTailMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+", " ").trim();
+        assertTrue(out.contains("RET=TAIL-OVERRIDE"), () -> "Expected CIR to override the return value\n" + r.stdout);
+        assertFalse(out.contains("RET=ORIG"), () -> "Original should be replaced\n" + r.stdout);
+    }
+
+    // --- TAIL: CI (void) side-effect only (no cancel) ---
+    @Test
+    void tailCiSideEffectOnly() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_ci_tail_sideeffect.yml");
+        assertNotNull(url, "mixins_ci_tail_sideeffect.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        // Target prints "BODY-DONE"; TAIL CI appends "[TAIL-CI]" (no cancel semantics)
+        var r = JvmRunner.runWithAgent("e2e.cicir.CiTailVoidMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+", " ").trim();
+        assertTrue(out.contains("[TAIL-CI]BODY-DONE"),
+                () -> "Expected side-effect marker from CI tail\n" + r.stdout);
+    }
+
+    // --- HEAD in <init>: CI works (void only), body runs after super() ---
+    @Test
+    void headCiInCtor() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_ci_head_ctor.yml");
+        assertNotNull(url, "mixins_ci_head_ctor.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        // Constructor prints "CTOR:BODY"; HEAD CI prints "[HEAD-CI]" after super-call
+        var r = JvmRunner.runWithAgent("e2e.cicir.CtorCiMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+        var out = r.stdout.replaceAll("\\s+", " ").trim();
+        assertTrue(out.contains("[HEAD-CI] CTOR:BODY"), () -> "Expected CI head after <init> call\n" + r.stdout);
+    }
+
+    // --- Negative: invalid CI/CIR usage should fail (non-optional) ---
+    @Test
+    void invalidCiOnNonVoidFails() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_invalid_ci_on_nonvoid.yml");
+        assertNotNull(url, "mixins_invalid_ci_on_nonvoid.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.CirHeadNonVoidMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertNotEquals(0, r.exitCode, () -> "Expected failure when CI used on non-void\n--- STDERR ---\n" + r.stderr);
+    }
+
+    @Test
+    void invalidCirOnVoidFails() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_invalid_cir_on_void.yml");
+        assertNotNull(url, "mixins_invalid_cir_on_void.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.CiCiVoidMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertNotEquals(0, r.exitCode, () -> "Expected failure when CIR used on void\n--- STDERR ---\n" + r.stderr);
+    }
+
+    @Test
+    void headCiCancelsBody() throws Exception {
+        var url = ClassLoader.getSystemResource("mixins_ci_head_cancel.yml");
+        assertNotNull(url, "mixins_ci_head_cancel.yml not found");
+        var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
+
+        var r = JvmRunner.runWithAgent("e2e.cicir.CancelVoidMain", List.of(), Map.of("aether.mixins.config", cfg));
+        assertEquals(0, r.exitCode, r.stderr);
+
+        var out = r.stdout.replaceAll("\\s+", " ").trim();
+        assertTrue(out.contains("[HEAD]"), () -> "Expected HEAD marker\n" + r.stdout);
+        assertFalse(out.contains("BODY"), () -> "Body must be skipped by CI cancel\n" + r.stdout);
+    }
+}
