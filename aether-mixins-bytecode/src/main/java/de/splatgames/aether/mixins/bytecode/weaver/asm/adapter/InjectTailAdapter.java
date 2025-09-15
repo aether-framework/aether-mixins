@@ -9,6 +9,7 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.LocalVariablesSorter;
 
+import static org.objectweb.asm.Opcodes.ALOAD;
 import static org.objectweb.asm.Opcodes.ARETURN;
 import static org.objectweb.asm.Opcodes.DRETURN;
 import static org.objectweb.asm.Opcodes.FRETURN;
@@ -49,6 +50,11 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
      * Internal JVM class name of {@link de.splatgames.aether.mixins.core.api.CallbackInfo CallbackInfo}.
      */
     private static final String CI_INTERNAL = "de/splatgames/aether/mixins/core/api/CallbackInfo";
+
+    /**
+     * Internal JVM class name of {@link de.splatgames.aether.mixins.core.api.CallbackInfoReturnable CallbackInfoReturnable}.
+     */
+    private static final String CIR_INTERNAL = "de/splatgames/aether/mixins/core/api/CallbackInfoReturnable";
 
     /**
      * The resolved hook (owner/name/desc) to invoke before each return.
@@ -172,39 +178,96 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
         if (isReturn(opcode)) {
             final boolean instance = HookShape.isInstance(this.targetAccess);
 
-            final @Nullable HookShape.Kind kind = HookShape.match(
-                    instance, this.ownerInternal, this.targetDesc, this.hook.desc(), CI_INTERNAL
+            @Nullable final HookShape.Kind kind = HookShape.match(
+                    instance, this.ownerInternal, this.targetDesc, this.hook.desc(), CI_INTERNAL, CIR_INTERNAL
             );
 
-            if (kind != null) {
-                if (HookShape.requiresThis(kind)) {
-                    HookShape.emitThisIfNeeded(this.mv, kind);
+            if (kind == null) {
+                if (!this.optional) {
+                    throw new IllegalStateException(
+                            "TAIL inject: incompatible hook signature for id=" + this.id +
+                                    " hook=" + this.hook.owner() + "." + this.hook.name() + this.hook.desc()
+                    );
                 }
-                int local = instance ? 1 : 0;
-                if (HookShape.passesArgs(kind)) {
-                    local = HookShape.emitArgs(this.mv, this.targetDesc, local);
-                }
-
-                final boolean usesCI = HookShape.usesCallbackInfo(kind);
-                int ciLocal;
-                if (usesCI) {
-                    ciLocal = newLocal(Type.getObjectType(CI_INTERNAL));
-                    HookShape.newCallbackInfoIfNeeded(this.mv, kind, CI_INTERNAL, ciLocal);
-                    HookShape.emitLoadCallbackInfoIfNeeded(this.mv, kind, ciLocal);
-                }
-
-                super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
-                this.markChanged.run();
-                this.applied = true;
-            } else if (!this.optional) {
-                throw new IllegalStateException(
-                        "TAIL inject: incompatible hook signature for id=" + this.id +
-                                " hook=" + this.hook.owner() + "." + this.hook.name() + this.hook.desc()
-                );
+                super.visitInsn(opcode);
+                return;
             }
+
+            final Type ret = Type.getReturnType(this.targetDesc);
+            final boolean isVoid = Type.VOID_TYPE.equals(ret);
+            final boolean usesCI = kind.usesCallbackInfo();
+            final boolean usesCIR = kind.usesCallbackInfoReturnable();
+
+            if (usesCI && !isVoid) {
+                if (!this.optional) {
+                    throw new IllegalStateException(
+                            "TAIL inject: CallbackInfo requires void target (id=" + this.id + ")."
+                    );
+                }
+                super.visitInsn(opcode);
+                return;
+            }
+
+            if (usesCIR && isVoid) {
+                if (!this.optional) {
+                    throw new IllegalStateException(
+                            "TAIL inject: CallbackInfoReturnable requires non-void target (id=" + this.id + ")."
+                    );
+                }
+                super.visitInsn(opcode);
+                return;
+            }
+
+            int retLocal = -1;
+            if (!isVoid) {
+                retLocal = newLocal(ret);
+                HookShape.storeReturnValueBeforeTail(this.mv, this.targetDesc, retLocal);
+            }
+
+            if (HookShape.requiresThis(kind)) {
+                HookShape.emitThisIfNeeded(this.mv, kind);
+            }
+            int local = instance ? 1 : 0;
+            if (HookShape.passesArgs(kind)) {
+                local = HookShape.emitArgs(this.mv, this.targetDesc, local);
+            }
+
+            int cbLocal = -1;
+            if (usesCI) {
+                cbLocal = newLocal(Type.getObjectType(CI_INTERNAL));
+                HookShape.newCallbackInfoIfNeeded(this.mv, kind, CI_INTERNAL, cbLocal);
+                HookShape.emitLoadCallbackInfoIfNeeded(this.mv, kind, cbLocal);
+            } else if (usesCIR) {
+                cbLocal = newLocal(Type.getObjectType(CIR_INTERNAL));
+                HookShape.newCallbackInfoReturnableIfNeeded(this.mv, kind, CIR_INTERNAL, cbLocal);
+
+                this.mv.visitVarInsn(ALOAD, cbLocal);
+                HookShape.loadReturnValueFromLocal(this.mv, this.targetDesc, retLocal);
+                HookShape.emitCirSetReturn(this.mv, CIR_INTERNAL, ret);
+
+                HookShape.emitLoadCallbackInfoReturnableIfNeeded(this.mv, kind, cbLocal);
+            }
+
+            super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+            this.markChanged.run();
+            this.applied = true;
+
+            if (!isVoid) {
+                if (usesCIR) {
+                    this.mv.visitVarInsn(ALOAD, cbLocal);
+                    HookShape.emitCirGetReturn(this.mv, CIR_INTERNAL, ret);
+                } else {
+                    HookShape.loadReturnValueFromLocal(this.mv, this.targetDesc, retLocal);
+                }
+            }
+
+            super.visitInsn(opcode);
+            return;
         }
+
         super.visitInsn(opcode);
     }
+
 
     /**
      * Verifies that at least one return site was instrumented, unless the injection is marked optional.
