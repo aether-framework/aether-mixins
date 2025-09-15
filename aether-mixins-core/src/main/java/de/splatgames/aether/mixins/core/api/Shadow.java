@@ -122,6 +122,19 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
  *       <li>Field initializers are ignored.</li>
  *     </ul>
  *   </li>
+ *   <li><b>Finality rules:</b>
+ *     <ul>
+ *       <li>If both the shadow and the target field are {@code final}, the field is treated as <em>read-only</em>.
+ *           The shadow may only read the value, never write to it.</li>
+ *       <li>If the shadow is non-final but the target field is {@code final}, writing to it is strictly forbidden
+ *           and validated at weave-time. This preserves the original immutability of the target class.</li>
+ *       <li>If the shadow is {@code final} but the target field is not, this is allowed, but effectively creates
+ *           a read-only view. A warning may be logged to indicate that the shadow is stricter than the target.</li>
+ *       <li>Writing to a {@code final} target field is only possible with explicit opt-in mechanisms such as
+ *           {@code @Mutable} combined with a runtime configuration flag. This is extremely unsafe and should
+ *           be reserved for rare edge-cases.</li>
+ *     </ul>
+ *   </li>
  * </ul>
  *
  * <h2>Summary of attribute behavior</h2>
