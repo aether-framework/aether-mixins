@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-ci-head-ctor-cancel
+    classes:
+      - e2e.cicir.mixins.HeadCiCtorCancelMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

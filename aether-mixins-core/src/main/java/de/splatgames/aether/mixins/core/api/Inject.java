@@ -39,7 +39,8 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
  * {@code "<init>(...)V"}. Descriptors follow the JVM format (e.g., {@code (I)I}, {@code (Ljava/lang/String;)V}).</p>
  *
  * <h3>Join points</h3>
- * <p>The {@link #at()} attribute selects a well-defined injection point. In the MVP, the supported points are:
+ * <p>The {@link #at()} attribute selects a well-defined injection point.
+ * The supported points are:
  * {@link Inject.At#HEAD HEAD} (first instruction) and {@link Inject.At#TAIL TAIL} (just before any return).</p>
  *
  * <h3>Ordering &amp; priority</h3>
@@ -70,7 +71,7 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
  * }</pre></blockquote>
  *
  * @author Erik Pförtner
- * @apiNote The MVP supports {@link At#HEAD} and {@link At#TAIL}. Future versions may introduce finer-grained points
+ * @apiNote Support for {@link At#HEAD} and {@link At#TAIL}. Future versions may introduce finer-grained points
  * (e.g., INVOKE, LINE, RETURN) and additional attributes for argument/variable capture and cancellation.
  * @implSpec Backends must guarantee bytecode verification (e.g., stack map frame recomputation) and adhere to the
  * deterministic ordering rules described above. If weaving fails, a safe-mode runtime should leave the class
@@ -141,7 +142,19 @@ public @interface Inject {
     boolean remap() default true;
 
     /**
-     * Well-known injection points. The set is intentionally minimal in the MVP.
+     * Cancellation support for this injection point.
+     *
+     * <p>Callbacks marked {@code cancellable = true} may signal cancellation via a backend-defined mechanism
+     * (e.g., a {@link CallbackInfo} or {@link CallbackInfoReturnable} parameter).
+     * When a callback cancels, the original target method must abort
+     * its execution as soon as possible.</p>
+     *
+     * @return {@code true} if the callback is allowed to cancel the target method; {@code false} otherwise
+     */
+    boolean cancellable() default false;
+
+    /**
+     * Well-known injection points.
      */
     enum At {
         /**

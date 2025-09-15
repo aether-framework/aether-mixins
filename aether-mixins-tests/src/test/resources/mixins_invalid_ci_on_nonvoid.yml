@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-invalid-ci-nonvoid
+    classes:
+      - e2e.cicir.mixins.InvalidCiNonVoidMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

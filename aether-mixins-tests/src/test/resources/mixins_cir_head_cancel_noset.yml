@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-cir-head-cancel-noset
+    classes:
+      - e2e.cicir.mixins.HeadCirCancelNoSetMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-ci-tail-sideeffect
+    classes:
+      - e2e.cicir.mixins.TailCiSideEffectMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

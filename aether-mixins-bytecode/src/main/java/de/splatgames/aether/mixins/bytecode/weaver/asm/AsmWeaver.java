@@ -32,6 +32,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import static org.objectweb.asm.Opcodes.ACC_ABSTRACT;
+import static org.objectweb.asm.Opcodes.ACC_NATIVE;
 import static org.objectweb.asm.Opcodes.ASM9;
 
 /**
@@ -39,44 +41,51 @@ import static org.objectweb.asm.Opcodes.ASM9;
  * to target classes by injecting hooks at {@link Inject.At#HEAD}/{@link Inject.At#TAIL}
  * and redirecting specific call sites to static hook methods.
  *
- * <h2>Feature set (MVP)</h2>
+ * <h2>Supported features</h2>
  * <ul>
  *   <li><b>Inject</b>:
  *     <ul>
  *       <li>Join points: {@link Inject.At#HEAD} and {@link Inject.At#TAIL}.</li>
- *       <li>Hook signature must be {@code static} and {@code ()V}.</li>
+ *       <li>Hook methods must be {@code static}.</li>
+ *       <li>Method descriptors are fully supported and validated upstream.</li>
  *     </ul>
  *   </li>
  *   <li><b>Redirect</b>:
  *     <ul>
- *       <li>Rewrites a single call site (owner/name/desc/{@code kind}/ordinal) to {@code INVOKESTATIC} hook.</li>
- *       <li>Descriptor compatibility is validated upstream; for instance calls, receiver is prepended.</li>
+ *       <li>Rewrites a single call site (owner/name/descriptor/{@code kind}/ordinal)
+ *           to call a static hook method via {@code INVOKESTATIC}.</li>
+ *       <li>For instance calls, the original receiver is passed as the first argument
+ *           to the hook method.</li>
+ *       <li>Descriptor compatibility is validated before weaving.</li>
  *     </ul>
  *   </li>
  *   <li><b>Verification</b>:
  *     <ul>
- *       <li>{@link VerifyFrames#NONE}: no recomputation.</li>
- *       <li>{@link VerifyFrames#BASIC}/{@link VerifyFrames#STRICT}: recompute frames and maxs
- *           via {@link ClassWriter#COMPUTE_FRAMES} | {@link ClassWriter#COMPUTE_MAXS}.</li>
+ *       <li>{@link VerifyFrames#NONE}: no recomputation of stack frames.</li>
+ *       <li>{@link VerifyFrames#BASIC} or {@link VerifyFrames#STRICT}: recompute stack frames
+ *           and max values using {@link ClassWriter#COMPUTE_FRAMES} and {@link ClassWriter#COMPUTE_MAXS}.</li>
  *     </ul>
  *   </li>
  *   <li><b>Ordering</b>:
  *     <ul>
- *       <li>Deterministic ordering for multiple injections/redirects per target method:
- *           redirects → TAIL-injects (by priority asc, then id) → HEAD-injects (by priority asc, then id).</li>
+ *       <li>Deterministic ordering when multiple hooks target the same method:
+ *           <code>Redirects → TAIL-injects (by priority, then id) → HEAD-injects (by priority, then id)</code>.</li>
  *     </ul>
  *   </li>
  * </ul>
  *
  * <h2>Processing model</h2>
  * <ul>
- *   <li>All {@link PlannedMixin} entries are resolved to concrete hooks using {@link HookResolver}.</li>
- *   <li>Entries are grouped by target class and then by method signature (name+descriptor).</li>
- *   <li>Each target class is visited at most once; failures are collected in {@link ConfigProblems}.</li>
- *   <li>In safe mode, per-class errors are recorded and original bytes preserved; otherwise errors may propagate.</li>
+ *   <li>All {@link PlannedMixin} entries are resolved to concrete hooks using a {@link HookResolver}.</li>
+ *   <li>Entries are grouped by target class and then by method signature (name + descriptor).</li>
+ *   <li>Each target class is visited exactly once.</li>
+ *   <li>Failures are reported through {@link ConfigProblems}.</li>
+ *   <li>In safe mode, original class bytes are preserved when errors occur;
+ *       otherwise errors may propagate and abort the process.</li>
  * </ul>
  *
- * <p>Thread-safety: instances are not thread-safe; a single instance is expected per weaving run.</p>
+ * <p><b>Thread-safety:</b> This implementation is <em>not</em> thread-safe.
+ * A new instance should be created for each weaving run.</p>
  *
  * @author Erik Pförtner
  * @since 0.1.0
@@ -132,6 +141,12 @@ public final class AsmWeaver implements Weaver {
             final String internalName = it.getKey();
             final ClassWork cw = it.getValue();
 
+            if (cw.getInjects().isEmpty() && cw.getRedirects().isEmpty()) {
+                entries.add(new WeaveResult.Entry(it.getKey(), WeaveResult.Outcome.SKIPPED));
+                skipped++;
+                continue;
+            }
+
             final byte[] original;
             try {
                 original = request.source().getClassBytes(internalName);
@@ -155,9 +170,18 @@ public final class AsmWeaver implements Weaver {
                 final boolean changed = transformedBytes != null;
 
                 if (changed) {
-                    request.sink().accept(internalName, transformedBytes);
-                    entries.add(new WeaveResult.Entry(internalName, WeaveResult.Outcome.TRANSFORMED));
-                    transformed++;
+                    try {
+                        request.sink().accept(internalName, transformedBytes);
+                        entries.add(new WeaveResult.Entry(internalName, WeaveResult.Outcome.TRANSFORMED));
+                        transformed++;
+                    } catch (final IOException ioe) {
+                        problems.error("weave/" + internalName, "Failed writing class: " + ioe.getMessage());
+                        if (!safe) {
+                            throw ioe;
+                        }
+                        entries.add(new WeaveResult.Entry(internalName, WeaveResult.Outcome.FAILED));
+                        failed++;
+                    }
                 } else {
                     entries.add(new WeaveResult.Entry(internalName, WeaveResult.Outcome.SKIPPED));
                     skipped++;
@@ -186,6 +210,7 @@ public final class AsmWeaver implements Weaver {
      * @return a map from internal class name to {@link ClassWork}, never {@code null}
      */
     @NotNull
+    @SuppressWarnings("ConstantConditions")
     private Map<String, ClassWork> buildWork(@NotNull final WeavePlan plan,
                                                       @NotNull final ConfigProblems problems) {
         final Map<String, ClassWork> map = new LinkedHashMap<>();
@@ -195,19 +220,23 @@ public final class AsmWeaver implements Weaver {
                 final ClassWork cw = map.computeIfAbsent(target, k -> new ClassWork(target));
                 for (final PlannedEntry pe : mixin.getEntries()) {
                     final Optional<ResolvedHook> rhOpt = this.resolver.resolve(
-                            mixin, pe, problems, "resolve/" + target + "/" + mixin.getClassName() + ":" + pe.getId());
+                            mixin, pe, problems, "resolve/" + target + "/" + mixin.getClassName() + ":" + pe.getId()
+                    );
+                    final String ctx = pathResolve(target, mixin, pe);
                     if (rhOpt.isEmpty()) {
-                        problems.error("resolve/" + target, "No hook resolved for " + mixin.getClassName() + " id=" + pe.getId());
+                        final String msg = "No hook resolved for " + mixin.getClassName() + " id=" + pe.getId();
+                        if (pe.isOptional()) {
+                            problems.warn(ctx, msg + " (optional; skipping)");
+                        } else {
+                            problems.error(ctx, msg);
+                        }
                         continue;
                     }
                     final ResolvedHook rh = rhOpt.get();
                     switch (pe.getKind()) {
                         case INJECT -> {
-                            if (!"()V".equals(rh.desc())) {
-                                problems.error("resolve/" + target, "INJECT hook must be ()V in MVP: " + rh.owner() + "." + rh.name() + rh.desc());
-                                continue;
-                            }
-                            cw.getInjects().computeIfAbsent(this.sigOf(pe.getMethod()), k -> new ArrayList<>())
+                            cw.getInjects()
+                                    .computeIfAbsent(this.sigOf(pe.getMethod()), k -> new ArrayList<>())
                                     .add(new InjectionSpec(pe.getAt(), rh, pe.isOptional(), pe.isRemap(), pe.getId(), mixin.getPriority()));
                         }
                         case REDIRECT ->
@@ -260,6 +289,7 @@ public final class AsmWeaver implements Weaver {
                               @NotNull final ConfigProblems problems) {
         final VerifyFrames verify = request.runtime().getVerifyFrames();
         final boolean compute = verify.isAtLeast(VerifyFrames.BASIC);
+        final int acceptFlags = compute ? ClassReader.EXPAND_FRAMES : 0;
 
         final ClassReader cr = new ClassReader(original);
         final ClassWriter cw = compute
@@ -276,6 +306,11 @@ public final class AsmWeaver implements Weaver {
                                              final String signature,
                                              final String[] exceptions) {
                 MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+
+                // fix: skip abstract/native methods
+                if ((access & (ACC_ABSTRACT | ACC_NATIVE)) != 0) {
+                    return mv;
+                }
 
                 final String sig = name + descriptor;
 
@@ -316,6 +351,7 @@ public final class AsmWeaver implements Weaver {
                 for (final InjectionSpec t : tailSorted) {
                     mv = new InjectTailAdapter(
                             this.api, mv,
+                            internalName, access, descriptor,
                             t.hook(), t.optional(), t.id(),
                             changed::getAndSet,
                             problems, internalName, sig
@@ -323,7 +359,8 @@ public final class AsmWeaver implements Weaver {
                 }
                 for (final InjectionSpec h : headSorted) {
                     mv = new InjectHeadAdapter(
-                            this.api, mv,
+                            this.api, name, mv,
+                            internalName, access, descriptor,
                             h.hook(), h.optional(), h.id(),
                             changed::getAndSet,
                             problems, internalName, sig
@@ -333,21 +370,50 @@ public final class AsmWeaver implements Weaver {
             }
         };
 
-        cr.accept(cv, compute ? ClassReader.SKIP_FRAMES : 0);
+        cr.accept(cv, acceptFlags);
         return changed.isSet() ? cw.toByteArray() : null;
+    }
+
+    /**
+     * Constructs a unique problem context path for a specific target class and planned
+     * mixin entry.
+     *
+     * @param target target class internal JVM name (slash-separated); never {@code null}
+     * @param mixin  the planned mixin; never {@code null}
+     * @param pe     the planned entry; never {@code null}
+     * @return a context path string for diagnostics; never {@code null}
+     */
+    @NotNull
+    private static String pathResolve(@NotNull final String target, @NotNull final PlannedMixin mixin, @NotNull final PlannedEntry pe) {
+        return "resolve/" + target + "/" + mixin.getClassName() + ":" + pe.getId();
+    }
+
+    /**
+     * Constructs a unique problem context path for a specific target class and method signature.
+     *
+     * @param internalName internal JVM class name (slash-separated); never {@code null}
+     * @param sig          method signature (name + descriptor); never {@code null}
+     * @return a context path string for diagnostics; never {@code null}
+     */
+    @NotNull
+    private static String pathWeave(@NotNull final String internalName, @NotNull final String sig) {
+        return "weave/" + internalName + "/" + sig;
     }
 
     /**
      * Derives the per-method signature key used to group specs within a class.
      *
-     * <p>In the current MVP, {@code namePlusDesc} already matches the key format, but this method
-     * centralizes potential future normalization (e.g., signature canonicalization).</p>
+     * <p>The key is the concatenation {@code name + descriptor}. Minor normalization is applied
+     * to avoid accidental whitespace mismatches.</p>
      *
-     * @param namePlusDesc a concatenation of method name and descriptor (e.g., {@code doWork(I)I}); never {@code null}
-     * @return the signature key (currently identical to input); never {@code null}
+     * @param namePlusDesc concatenation of method name and descriptor; never {@code null}
+     * @return normalized signature key; never {@code null}
      */
     @NotNull
     private String sigOf(@NotNull final String namePlusDesc) {
-        return namePlusDesc;
+        // defensive normalization without changing semantics
+        final String s = namePlusDesc.trim();
+        // collapse any accidental internal whitespace (shouldn't occur for JVM descriptors)
+        return s.indexOf(' ') >= 0 ? s.replaceAll("\\s+", "") : s;
     }
 }

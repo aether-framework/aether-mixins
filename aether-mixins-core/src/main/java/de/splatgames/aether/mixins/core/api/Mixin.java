@@ -70,8 +70,9 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
  * schema and runtime flags.</p>
  *
  * @author Erik Pförtner
- * @apiNote The set of attributes is intentionally small for the MVP. Future versions may add explicit dependency
- * declarations and conflict resolution policies. The semantics of {@link #priority()} are stable.
+ * @apiNote At the time there are no support for direct dependencies between mixins, e.g., to order
+ * mixins relative to each other beyond {@link #priority() priority} or to share state.
+ * Future versions may introduce such features based on experience and demand.
  * @since 0.1.0
  */
 @Documented

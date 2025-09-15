@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
 /**
  * Resolves declared conflicts among planned mixins.
  *
- * <p><b>Policy (MVP):</b></p>
+ * <p><b>Policy:</b></p>
  * <ul>
  *   <li>A conflict occurs if one mixin's {@code conflictsWith} contains the other mixin's class name
  *       or intersects any of its groups.</li>
@@ -26,10 +26,7 @@ import java.util.stream.Collectors;
  *
  * <p><b>Determinism:</b> Input order is preserved where decisions are equal (stable behavior via {@link LinkedHashMap}).</p>
  *
- * <p><b>Complexity:</b> O(n²) pairwise checks (acceptable for small/medium mixin counts in MVP).</p>
- *
- * @author Erik Pförtner
- * @since 0.1.0
+ * <p><b>Scope:</b> Only mixins that affect at least one common target class are compared against each other.</p>
  */
 public final class ConflictResolver {
 
@@ -51,7 +48,7 @@ public final class ConflictResolver {
         if (a.getConflictsWith().contains(b.getClassName())) return true;
 
         // group-based conflict
-        for (String g : b.getGroups()) {
+        for (final String g : b.getGroups()) {
             if (a.getConflictsWith().contains(g)) return true;
         }
         return false;
@@ -81,8 +78,11 @@ public final class ConflictResolver {
     /**
      * Applies conflict resolution and returns a filtered plan.
      *
-     * <p>Conflicts are computed pairwise. When a conflict is detected, the loser is removed;
-     * the decision for a conflicting pair is deterministic based on priority and then class name.</p>
+     * <p>Conflicts are computed deterministically. When a conflict is detected, the loser is removed.
+     * The decision for a conflicting pair is based on priority and then class name.</p>
+     *
+     * <p>To reduce unnecessary comparisons, candidates are grouped per target class and only mixins
+     * that affect at least one common target are checked against each other.</p>
      *
      * @param plan     initial plan, must not be {@code null}
      * @param problems diagnostics collector, must not be {@code null}
@@ -99,27 +99,43 @@ public final class ConflictResolver {
         final Map<String, PlannedMixin> byClass = mixins.stream()
                 .collect(Collectors.toMap(PlannedMixin::getClassName, m -> m, (a, b) -> a, LinkedHashMap::new));
 
-        // Pairwise check — O(n^2) MVP, OK for small sets.
+        // Group candidates per target to limit comparisons to overlapping targets.
+        final Map<String, List<PlannedMixin>> byTarget = new LinkedHashMap<>();
+        for (final PlannedMixin m : byClass.values()) {
+            for (final String target : m.getTargets()) {
+                byTarget.computeIfAbsent(target, k -> new ArrayList<>()).add(m);
+            }
+        }
+
         final Set<String> removed = new HashSet<>();
-        final List<PlannedMixin> list = new ArrayList<>(byClass.values());
-        for (int i = 0; i < list.size(); i++) {
-            final PlannedMixin a = list.get(i);
-            if (removed.contains(a.getClassName())) continue;
 
-            for (int j = i + 1; j < list.size(); j++) {
-                final PlannedMixin b = list.get(j);
-                if (removed.contains(b.getClassName())) continue;
+        for (final Map.Entry<String, List<PlannedMixin>> group : byTarget.entrySet()) {
+            final String target = group.getKey();
+            final List<PlannedMixin> list = group.getValue();
 
-                final boolean aVsB = conflicts(a, b);
-                final boolean bVsA = conflicts(b, a);
+            // Pairwise within the target group
+            for (int i = 0; i < list.size(); i++) {
+                final PlannedMixin a = list.get(i);
+                if (removed.contains(a.getClassName())) {
+                    continue;
+                }
 
-                if (aVsB || bVsA) {
-                    final PlannedMixin keep = pick(a, b);
-                    final PlannedMixin drop = (keep == a) ? b : a;
-                    problems.warn("conflicts",
-                            "Resolved conflict: kept " + keep.getClassName() +
-                                    " (priority " + keep.getPriority() + ") over " + drop.getClassName());
-                    removed.add(drop.getClassName());
+                for (int j = i + 1; j < list.size(); j++) {
+                    final PlannedMixin b = list.get(j);
+                    if (removed.contains(b.getClassName())) {
+                        continue;
+                    }
+
+                    final boolean aVsB = conflicts(a, b);
+                    final boolean bVsA = conflicts(b, a);
+                    if (aVsB || bVsA) {
+                        final PlannedMixin keep = pick(a, b);
+                        final PlannedMixin drop = (keep == a) ? b : a;
+                        problems.warn("conflicts/" + target,
+                                "Resolved conflict: kept " + keep.getClassName() +
+                                        " (priority " + keep.getPriority() + ") over " + drop.getClassName());
+                        removed.add(drop.getClassName());
+                    }
                 }
             }
         }

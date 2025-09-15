@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-cir-head-nonvoid-cancel
+    classes:
+      - e2e.cicir.mixins.HeadCirNonVoidCancelMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

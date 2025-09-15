@@ -168,8 +168,6 @@ public final class AnnotationRefmapBuilder {
         return List.copyOf(out);
     }
 
-    // -------- Annotation element helpers (handle presence/absence of optional elements) --------
-
     /**
      * Returns the {@code id} element from {@link Inject} or {@code null} if the element is not present in the annotation type.
      */

@@ -1,10 +1,15 @@
 package de.splatgames.aether.mixins.bytecode.weaver.asm.adapter;
 
+import de.splatgames.aether.mixins.bytecode.weaver.asm.util.HookShape;
 import de.splatgames.aether.mixins.bytecode.weaver.hook.ResolvedHook;
 import de.splatgames.aether.mixins.core.config.problems.ConfigProblems;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Type;
+import org.objectweb.asm.commons.LocalVariablesSorter;
 
+import static org.objectweb.asm.Opcodes.ALOAD;
 import static org.objectweb.asm.Opcodes.ARETURN;
 import static org.objectweb.asm.Opcodes.DRETURN;
 import static org.objectweb.asm.Opcodes.FRETURN;
@@ -14,12 +19,14 @@ import static org.objectweb.asm.Opcodes.LRETURN;
 import static org.objectweb.asm.Opcodes.RETURN;
 
 /**
- * Method visitor that injects a single static {@code ()V} hook call immediately before
+ * Method visitor that injects a single static hook call immediately before
  * every return instruction of the visited method (TAIL injection).
  *
  * <p>Behavior:</p>
  * <ul>
  *   <li>On each return opcode, emits an {@code INVOKESTATIC} to the configured {@link #hook}.</li>
+ *   <li>Supports four hook descriptor shapes:
+ *       {@code ()V}, {@code (OWNER;)V}, {@code (args)V}, {@code (OWNER;args)V}.</li>
  *   <li>Marks the enclosing weaving operation as changed via {@link #markChanged}.</li>
  *   <li>If no return is ever visited, a non-optional injection fails fast in {@link #visitEnd()}.</li>
  * </ul>
@@ -37,7 +44,17 @@ import static org.objectweb.asm.Opcodes.RETURN;
  * @author Erik Pförtner
  * @since 0.1.0
  */
-public final class InjectTailAdapter extends MethodVisitor {
+public final class InjectTailAdapter extends LocalVariablesSorter {
+
+    /**
+     * Internal JVM class name of {@link de.splatgames.aether.mixins.core.api.CallbackInfo CallbackInfo}.
+     */
+    private static final String CI_INTERNAL = "de/splatgames/aether/mixins/core/api/CallbackInfo";
+
+    /**
+     * Internal JVM class name of {@link de.splatgames.aether.mixins.core.api.CallbackInfoReturnable CallbackInfoReturnable}.
+     */
+    private static final String CIR_INTERNAL = "de/splatgames/aether/mixins/core/api/CallbackInfoReturnable";
 
     /**
      * The resolved hook (owner/name/desc) to invoke before each return.
@@ -77,15 +94,35 @@ public final class InjectTailAdapter extends MethodVisitor {
     private final String ctx;
 
     /**
+     * Target method context (owner/access/descriptor) used to validate and marshal operands.
+     */
+    @NotNull
+    private final String ownerInternal;
+
+    /**
+     * Access flags of the target method (e.g., {@code ACC_PUBLIC | ACC_STATIC}).
+     */
+    private final int targetAccess;
+
+    /**
+     * Method descriptor of the target method (e.g., {@code (I)V}).
+     */
+    @NotNull
+    private final String targetDesc;
+
+    /**
      * Tracks whether the injection has been applied at least once.
      */
     private boolean applied = false;
 
     /**
-     * Constructs a new adapter that injects a static {@code ()V} hook before return instructions.
+     * Constructs a new adapter that injects a hook call at method entry.
      *
      * @param api         ASM API level to use
      * @param mv          downstream method visitor to delegate to; must not be {@code null}
+     * @param ownerInternal internal JVM class name of the target method (e.g., {@code com/example/Foo}); must not be {@code null}
+     * @param targetAccess access flags of the target method (e.g., {@code ACC_PUBLIC | ACC_STATIC})
+     * @param targetDesc  method descriptor of the target method (e.g., {@code (I)V}); must not be {@code null}
      * @param hook        resolved hook to invoke; must not be {@code null} and must be {@code ()V}
      * @param optional    whether to tolerate the absence of return opcodes without failing
      * @param id          developer-defined identifier used in diagnostics; must not be {@code null}
@@ -96,6 +133,9 @@ public final class InjectTailAdapter extends MethodVisitor {
      */
     public InjectTailAdapter(final int api,
                              @NotNull final MethodVisitor mv,
+                             @NotNull final String ownerInternal,
+                             final int targetAccess,
+                             @NotNull final String targetDesc,
                              @NotNull final ResolvedHook hook,
                              final boolean optional,
                              @NotNull final String id,
@@ -103,7 +143,10 @@ public final class InjectTailAdapter extends MethodVisitor {
                              @NotNull final ConfigProblems problems,
                              @NotNull final String cls,
                              @NotNull final String sig) {
-        super(api, mv);
+        super(api, targetAccess, targetDesc, mv);
+        this.ownerInternal = ownerInternal;
+        this.targetAccess = targetAccess;
+        this.targetDesc = targetDesc;
         this.hook = hook;
         this.optional = optional;
         this.id = id;
@@ -133,12 +176,98 @@ public final class InjectTailAdapter extends MethodVisitor {
     @Override
     public void visitInsn(final int opcode) {
         if (isReturn(opcode)) {
+            final boolean instance = HookShape.isInstance(this.targetAccess);
+
+            @Nullable final HookShape.Kind kind = HookShape.match(
+                    instance, this.ownerInternal, this.targetDesc, this.hook.desc(), CI_INTERNAL, CIR_INTERNAL
+            );
+
+            if (kind == null) {
+                if (!this.optional) {
+                    throw new IllegalStateException(
+                            "TAIL inject: incompatible hook signature for id=" + this.id +
+                                    " hook=" + this.hook.owner() + "." + this.hook.name() + this.hook.desc()
+                    );
+                }
+                super.visitInsn(opcode);
+                return;
+            }
+
+            final Type ret = Type.getReturnType(this.targetDesc);
+            final boolean isVoid = Type.VOID_TYPE.equals(ret);
+            final boolean usesCI = kind.usesCallbackInfo();
+            final boolean usesCIR = kind.usesCallbackInfoReturnable();
+
+            if (usesCI && !isVoid) {
+                if (!this.optional) {
+                    throw new IllegalStateException(
+                            "TAIL inject: CallbackInfo requires void target (id=" + this.id + ")."
+                    );
+                }
+                super.visitInsn(opcode);
+                return;
+            }
+
+            if (usesCIR && isVoid) {
+                if (!this.optional) {
+                    throw new IllegalStateException(
+                            "TAIL inject: CallbackInfoReturnable requires non-void target (id=" + this.id + ")."
+                    );
+                }
+                super.visitInsn(opcode);
+                return;
+            }
+
+            int retLocal = -1;
+            if (!isVoid) {
+                retLocal = newLocal(ret);
+                HookShape.storeReturnValueBeforeTail(this, this.targetDesc, retLocal);
+            }
+
+            if (HookShape.requiresThis(kind)) {
+                HookShape.emitThisIfNeeded(this, kind);
+            }
+            int local = instance ? 1 : 0;
+            if (HookShape.passesArgs(kind)) {
+                local = HookShape.emitArgs(this, this.targetDesc, local);
+            }
+
+            int cbLocal = -1;
+            if (usesCI) {
+                cbLocal = newLocal(Type.getObjectType(CI_INTERNAL));
+                HookShape.newCallbackInfoIfNeeded(this, kind, CI_INTERNAL, cbLocal, /*method*/ "tail:" + this.id, /*cancellable*/ false);
+                HookShape.emitLoadCallbackInfoIfNeeded(this, kind, cbLocal);
+            } else if (usesCIR) {
+                cbLocal = newLocal(Type.getObjectType(CIR_INTERNAL));
+                HookShape.newCallbackInfoReturnableIfNeeded(this, kind, CIR_INTERNAL, cbLocal, /*method*/ "tail:" + this.id, /*cancellable*/ false);
+
+                this.visitVarInsn(ALOAD, cbLocal);
+                HookShape.loadReturnValueFromLocal(this, this.targetDesc, retLocal);
+                HookShape.emitCirSetReturn(this, CIR_INTERNAL, ret);
+
+                HookShape.emitLoadCallbackInfoReturnableIfNeeded(this, kind, cbLocal);
+            }
+
             super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
             this.markChanged.run();
             this.applied = true;
+
+            if (!isVoid) {
+                if (usesCIR) {
+                    this.visitVarInsn(ALOAD, cbLocal);
+                    HookShape.emitCirGetReturn(this, CIR_INTERNAL, ret);
+                } else {
+                    HookShape.loadReturnValueFromLocal(this, this.targetDesc, retLocal);
+                }
+            }
+
+            super.visitInsn(opcode);
+            return;
         }
+
         super.visitInsn(opcode);
     }
+
 
     /**
      * Verifies that at least one return site was instrumented, unless the injection is marked optional.

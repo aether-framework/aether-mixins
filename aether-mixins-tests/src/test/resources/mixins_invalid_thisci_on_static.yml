@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-invalid-thisci-on-static
+    classes:
+      - e2e.cicir.mixins.BadThisCiStaticMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

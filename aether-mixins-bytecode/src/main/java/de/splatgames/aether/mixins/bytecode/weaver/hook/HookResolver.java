@@ -12,44 +12,60 @@ import java.util.Optional;
  * by the bytecode weaver.
  *
  * <p>A resolver takes a {@link PlannedMixin} (the mixin class that contains hook methods)
- * and a {@link PlannedEntry} (the plan item describing what to inject/redirect) and attempts
- * to produce a {@link ResolvedHook} describing the hook's owner/name/descriptor. The returned
- * symbol is expected to be suitable for an {@code INVOKESTATIC} call site in the target class.</p>
+ * and a {@link PlannedEntry} (the plan item describing what to inject or redirect) and attempts
+ * to produce a {@link ResolvedHook} describing the hook's owner, name, and descriptor.
+ * The returned symbol is expected to be suitable for an {@code INVOKESTATIC} call site in the target class.</p>
  *
  * <h2>Responsibilities</h2>
  * <ul>
- *   <li>Locate candidate hook method(s) in the mixin class (e.g., via bytecode scanning or reflection).</li>
- *   <li>Apply selection rules (e.g., match annotation kind, match optional identifier, disallow ambiguity).</li>
- *   <li>Optionally validate basic signature constraints and emit diagnostics when expectations are violated.</li>
+ *   <li>Locate candidate hook methods in the mixin class (e.g., via bytecode scanning or reflection).</li>
+ *   <li>Apply selection rules:
+ *     <ul>
+ *       <li>Match annotation kind (e.g., {@code @Inject}, {@code @Redirect}).</li>
+ *       <li>Match optional identifier (ID).</li>
+ *       <li>Reject ambiguous results where multiple candidates match.</li>
+ *     </ul>
+ *   </li>
+ *   <li>Validate method signatures and descriptor compatibility for correctness.</li>
+ *   <li>Report any issues via the provided diagnostics collector.</li>
  * </ul>
  *
  * <h2>Expected semantics</h2>
  * <ul>
- *   <li>Exactly one hook must be resolved per {@link PlannedEntry}. If no candidate or multiple candidates
- *       match, the implementation should report a problem and return {@link Optional#empty()}.</li>
- *   <li>For MVP compatibility with the default weaver:
- *     <ul>
- *       <li>INJECT hooks are expected to be <em>static</em> with descriptor {@code ()V}.</li>
- *       <li>REDIRECT hooks are expected to be <em>static</em> and descriptor-compatible with the original invoke
- *           (prepend receiver type for instance calls; same return type).</li>
- *     </ul>
- *     Implementations may enforce these requirements strictly or report them as warnings/errors in {@code problems}.
+ *   <li>Exactly one hook must be resolved per {@link PlannedEntry}.
+ *       If no candidate or multiple candidates match, the implementation should report a problem
+ *       and return {@link Optional#empty()}.</li>
+ *   <li>
+ *       INJECT hooks are always invoked via {@code INVOKESTATIC}, with the expected descriptor matching the
+ *       target site and arguments.
+ *   </li>
+ *   <li>
+ *       REDIRECT hooks must match the signature of the original method:
+ *       <ul>
+ *           <li>For instance calls, the receiver is passed as the first argument to the hook.</li>
+ *           <li>For static calls, the signatures must match exactly.</li>
+ *           <li>The return type must always match the original invocation.</li>
+ *       </ul>
  *   </li>
  * </ul>
  *
  * <h2>Diagnostics</h2>
- * <p>Implementations should prefer reporting issues to {@code problems} rather than throwing exceptions,
- * unless a fatal condition prevents resolution (e.g., unreadable class bytes). Use the provided {@code path}
- * as a human-readable prefix that helps pinpoint the failure location in logs.</p>
+ * <p>Implementations should report issues to {@code problems} instead of throwing exceptions,
+ * unless a fatal condition prevents resolution (e.g., unreadable class bytes).
+ * The provided {@code path} should be used as a human-readable prefix to help pinpoint the
+ * location of the issue in logs.</p>
  *
  * <h2>Thread-safety</h2>
- * <p>Resolvers are not required to be thread-safe. A typical usage pattern is one resolver instance per weaving run.</p>
+ * <p>Resolvers are not required to be thread-safe.
+ * A typical usage pattern is to create a new resolver instance for each weaving run.</p>
  *
  * <h2>Example</h2>
  * <pre>{@code
  * HookResolver resolver = new AsmHookResolver(classSource);
  * Optional<ResolvedHook> rh = resolver.resolve(mixin, entry, problems, "planner/MyMixin#0");
- * rh.ifPresent(h -> * pass to weaver * );
+ * rh.ifPresent(h -> {
+ *     // Pass to weaver
+ * });
  * }</pre>
  *
  * @author Erik Pförtner
