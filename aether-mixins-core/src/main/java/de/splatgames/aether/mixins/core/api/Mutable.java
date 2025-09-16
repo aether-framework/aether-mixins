@@ -1,5 +1,13 @@
 package de.splatgames.aether.mixins.core.api;
 
+import java.lang.annotation.Documented;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.RetentionPolicy.RUNTIME;
+
 /**
  * Marks a shadowed field as explicitly allowed to weaken or override {@code final} semantics.
  *
@@ -74,6 +82,9 @@ package de.splatgames.aether.mixins.core.api;
  * @see Shadow
  * @since 0.2.0
  */
+@Documented
+@Retention(RUNTIME)
+@Target(FIELD)
 public @interface Mutable {
 
     /**
