@@ -62,11 +62,8 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
 
     private void ensureMethodPresent(@NotNull final ResolvedHook hook) {
         final String nameDesc = hook.name() + hook.desc();
-        if (this.existing.contains(nameDesc)) {
-            // Target already has method with same signature → nothing to do.
-            return;
-        }
-        // Load mixin class bytes and copy the method body.
+
+        // Load mixin class bytes
         final byte[] mixinBytes;
         try {
             mixinBytes = this.request.source().getClassBytes(hook.owner());
@@ -83,23 +80,40 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
         final ClassNode mixinNode = new ClassNode(ASM9);
         new ClassReader(mixinBytes).accept(mixinNode, 0);
 
-        final MethodNode src =
-                mixinNode.methods.stream()
-                        .filter(m -> m.name.equals(hook.name()) && m.desc.equals(hook.desc()))
-                        .findFirst().orElse(null);
-
+        final MethodNode src = mixinNode.methods.stream()
+                .filter(m -> m.name.equals(hook.name()) && m.desc.equals(hook.desc()))
+                .findFirst().orElse(null);
         if (src == null) {
-            this.problems.error("premerge/" + targetOwner, "Hook method not found in mixin: " + hook.owner() +
-                    "." + hook.name() + hook.desc());
+            this.problems.error("premerge/" + targetOwner, "Hook method not found in mixin: " +
+                    hook.owner() + "." + hook.name() + hook.desc());
             return;
         }
 
-        // Handle collision: if exists with same desc but different impl, rename deterministically.
+        // Detect @Unique on the source method (visible or invisible)
+        final String UNIQUE_DESC = "Lde/splatgames/aether/mixins/core/api/Unique;";
+        final boolean isUnique =
+                (src.visibleAnnotations != null && src.visibleAnnotations.stream().anyMatch(a -> UNIQUE_DESC.equals(a.desc))) ||
+                        (src.invisibleAnnotations != null && src.invisibleAnnotations.stream().anyMatch(a -> UNIQUE_DESC.equals(a.desc)));
+
+        // Decide insertion/rename policy
         String finalName = hook.name();
-        if (this.existing.contains(finalName + hook.desc())) {
-            finalName = finalName + "$am$" + Integer.toHexString(
-                    (hook.owner() + hook.name() + hook.desc()).hashCode());
+        if (this.existing.contains(nameDesc)) {
+            if (!isUnique) {
+                // Target already has same signature and method is not @Unique → skip
+                return;
+            }
+            // @Unique: rename deterministically
+            finalName = hook.name() + "$am$" + Integer.toHexString((hook.owner() + hook.name() + hook.desc()).hashCode());
             FinalNameRegistry.register(this.targetOwner, hook.name(), hook.desc(), finalName);
+        } else if (this.existing.contains(finalName + hook.desc())) {
+            // Conservative: if same simple name collides for other reasons, also rename when @Unique
+            if (isUnique) {
+                finalName = hook.name() + "$am$" + Integer.toHexString((hook.owner() + hook.name() + hook.desc()).hashCode());
+                FinalNameRegistry.register(this.targetOwner, hook.name(), hook.desc(), finalName);
+            } else {
+                // Normally shouldn't happen since we checked name+desc above, but guard anyway
+                return;
+            }
         }
 
         final int access =
@@ -113,6 +127,12 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
                 (src.exceptions == null ? null : src.exceptions.toArray(String[]::new))
         );
 
+        if (src.visibleAnnotations != null) {
+            src.visibleAnnotations.removeIf(a -> UNIQUE_DESC.equals(a.desc)
+                    || "Lde/splatgames/aether/mixins/core/api/Inject;".equals(a.desc)
+                    || "Lde/splatgames/aether/mixins/core/api/Redirect;".equals(a.desc)
+                    || "Lde/splatgames/aether/mixins/core/api/Shadow;".equals(a.desc));
+        }
         src.accept(mv);
 
         this.existing.add(finalName + hook.desc());
