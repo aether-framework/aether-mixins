@@ -39,7 +39,6 @@ import java.util.Optional;
  *   </li>
  *   <li>Validate the selected method:
  *     <ul>
- *       <li>Must be declared {@code static}.</li>
  *       <li>The method signature must be compatible with the target injection or redirect site.</li>
  *       <li>For instance method redirects, the receiver type is passed as the first parameter to the hook.</li>
  *     </ul>
@@ -129,17 +128,13 @@ public final class DefaultHookResolver implements HookResolver {
         }
 
         final Method hook = matched.get(0);
-
-        // Basic validation
-        if (!Modifier.isStatic(hook.getModifiers())) {
-            problems.error(path, "Hook method must be static: " + sig(hook));
-            return Optional.empty();
-        }
+        boolean isStatic = Modifier.isStatic(hook.getModifiers());
 
         final String owner = internalName(mixinClass);
         final String name = hook.getName();
         final String desc = toDescriptor(hook);
-        return Optional.of(new ResolvedHook(owner, name, desc));
+        final HookInvocation invoc = HookInvocation.isStatic(isStatic);
+        return Optional.of(new ResolvedHook(owner, name, desc, invoc));
     }
 
     /**

@@ -12,19 +12,23 @@ import java.util.Objects;
  *   <li>{@code owner}: internal class name (e.g. {@code com/example/MyMixin})</li>
  *   <li>{@code name}: simple method name</li>
  *   <li>{@code desc}: JVM descriptor (e.g. {@code ()V}, {@code (Ljava/lang/String;I)I})</li>
+ *   <li>{@code invocation}: invocation type, either {@link HookInvocation#STATIC static} or {@link HookInvocation#INSTANCE instance} method</li>
  * </ul>
  * </p>
  *
- * @param owner internal class name, never {@code null}
- * @param name  method name, never {@code null}
- * @param desc  method descriptor, never {@code null}
+ * @param owner      internal class name, never {@code null}
+ * @param name       method name, never {@code null}
+ * @param desc       method descriptor, never {@code null}
+ * @param invocation invocation type, never {@code null}
  * @author Erik Pförtner
  * @since 0.1.0
  */
-public record ResolvedHook(@NotNull String owner, @NotNull String name, @NotNull String desc) {
+public record ResolvedHook(@NotNull String owner, @NotNull String name, @NotNull String desc,
+                           @NotNull HookInvocation invocation) {
     public ResolvedHook {
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(desc, "desc");
+        Objects.requireNonNull(invocation, "invocation");
     }
 }
