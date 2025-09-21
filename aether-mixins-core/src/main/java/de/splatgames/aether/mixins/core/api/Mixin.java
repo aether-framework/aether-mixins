@@ -105,7 +105,7 @@ public @interface Mixin {
      *
      * @return array of target class names (must not be empty)
      */
-    String[] targets();
+    String[] targets() default {};
 
     /**
      * Controls the relative application order of mixins that affect the same join points.
