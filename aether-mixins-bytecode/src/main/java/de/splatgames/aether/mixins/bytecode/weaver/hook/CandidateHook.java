@@ -37,20 +37,33 @@ public final class CandidateHook {
     public final String desc;
 
     /**
+     * The invocation type, either {@link HookInvocation#STATIC static} or {@link HookInvocation#INSTANCE instance} method.
+     * <p>Determined by the weaver based on the method's {@code static} modifier.</p>
+     *
+     * @since 0.2.0
+     */
+    @NotNull
+    public final HookInvocation invocation;
+
+    /**
      * Optional annotation {@code id} value captured from the hook annotation.
      */
     @Nullable
     public String annotationId;
 
+
     /**
      * Creates a new candidate hook representation with the given method data.
      *
-     * @param name the method name; must not be {@code null}
-     * @param desc the JVM method descriptor; must not be {@code null}
+     * @param name       the method name; must not be {@code null}
+     * @param desc       the JVM method descriptor; must not be {@code null}
+     * @param invocation the invocation type; must not be {@code null}
      */
-    public CandidateHook(@NotNull final String name, @NotNull final String desc) {
+    public CandidateHook(@NotNull final String name, @NotNull final String desc,
+                         @NotNull final HookInvocation invocation) {
         this.name = name;
         this.desc = desc;
+        this.invocation = invocation;
     }
 
     /**

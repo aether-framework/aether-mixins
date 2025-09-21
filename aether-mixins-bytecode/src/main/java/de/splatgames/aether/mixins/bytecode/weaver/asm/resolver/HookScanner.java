@@ -1,6 +1,7 @@
 package de.splatgames.aether.mixins.bytecode.weaver.asm.resolver;
 
 import de.splatgames.aether.mixins.bytecode.weaver.hook.CandidateHook;
+import de.splatgames.aether.mixins.bytecode.weaver.hook.HookInvocation;
 import de.splatgames.aether.mixins.core.config.problems.ConfigProblems;
 import de.splatgames.aether.mixins.core.plan.PlannedEntry;
 import org.jetbrains.annotations.NotNull;
@@ -74,13 +75,11 @@ public final class HookScanner {
             @Override
             public MethodVisitor visitMethod(final int access, final String name, final String desc,
                                              final String signature, final String @Nullable [] exceptions) {
+                final HookInvocation invoc = (access & ACC_STATIC) != 0
+                        ? HookInvocation.STATIC
+                        : HookInvocation.INSTANCE;
 
-                // Only static methods are eligible at this point.
-                if ((access & ACC_STATIC) == 0) {
-                    return null;
-                }
-
-                final CandidateHook holder = new CandidateHook(name, desc);
+                final CandidateHook holder = new CandidateHook(name, desc, invoc);
                 final boolean[] hasRequired = {false};
 
                 return new MethodVisitor(ASM9) {

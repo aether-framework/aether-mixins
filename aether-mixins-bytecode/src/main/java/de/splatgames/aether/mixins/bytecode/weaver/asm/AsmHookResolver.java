@@ -120,7 +120,7 @@ public final class AsmHookResolver implements HookResolver {
             }
         }
 
-        return Optional.of(new ResolvedHook(internal, mi.name, mi.desc));
+        return Optional.of(new ResolvedHook(internal, mi.name, mi.desc, mi.invocation));
     }
 
     /**
