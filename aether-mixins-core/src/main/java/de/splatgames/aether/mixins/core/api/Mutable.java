@@ -73,10 +73,6 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
  * }
  * }</pre></blockquote>
  *
- *
- * <p><b>Implementation note:</b> The exact key/flag name is runtime-configurable and may be defined
- * per section/environment (e.g., dev/test/prod) to ensure dangerous capabilities remain disabled by default.</p>
- *
  * @author Erik Pförtner
  * @see Shadow
  * @since 0.2.0
