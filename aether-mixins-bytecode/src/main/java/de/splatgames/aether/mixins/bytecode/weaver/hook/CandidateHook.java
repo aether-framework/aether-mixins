@@ -28,13 +28,13 @@ public final class CandidateHook {
      * The method name.
      */
     @NotNull
-    public final String name;
+    private final String name;
 
     /**
      * The JVM method descriptor, e.g., {@code (I)V}.
      */
     @NotNull
-    public final String desc;
+    private final String desc;
 
     /**
      * The invocation type, either {@link HookInvocation#STATIC static} or {@link HookInvocation#INSTANCE instance} method.
@@ -43,13 +43,13 @@ public final class CandidateHook {
      * @since 0.2.0
      */
     @NotNull
-    public final HookInvocation invocation;
+    private final HookInvocation invocation;
 
     /**
      * Optional annotation {@code id} value captured from the hook annotation.
      */
     @Nullable
-    public String annotationId;
+    private String annotationId;
 
 
     /**
@@ -64,6 +64,65 @@ public final class CandidateHook {
         this.name = name;
         this.desc = desc;
         this.invocation = invocation;
+    }
+
+    /**
+     * Returns the method name of this candidate.
+     *
+     * @return the method name; never {@code null}
+     * @since 0.2.0
+     */
+    @NotNull
+    public String getName() {
+        return this.name;
+    }
+
+    /**
+     * Returns the JVM method descriptor of this candidate.
+     *
+     * @return the method descriptor; never {@code null}
+     * @since 0.2.0
+     */
+    @NotNull
+    public String getDesc() {
+        return this.desc;
+    }
+
+    /**
+     * Returns the invocation type of this candidate, either {@link HookInvocation#STATIC static}
+     * or {@link HookInvocation#INSTANCE instance} method.
+     *
+     * @return the invocation type; never {@code null}
+     * @since 0.2.0
+     */
+    @NotNull
+    public HookInvocation getInvocation() {
+        return this.invocation;
+    }
+
+    /**
+     * Returns the optional annotation {@code id} value captured from the hook annotation.
+     *
+     * @return the annotation id; may be {@code null} if the annotation was not present,
+     * empty string {@code ""} if no explicit {@code id} attribute was given,
+     * or a non-empty string with the explicit {@code id} value
+     * @since 0.2.0
+     */
+    @Nullable
+    public String getAnnotationId() {
+        return this.annotationId;
+    }
+
+    /**
+     * Sets the optional annotation {@code id} value captured from the hook annotation.
+     *
+     * @param annotationId the annotation id; may be {@code null} if the annotation was not present,
+     *                     empty string {@code ""} if no explicit {@code id} attribute was given,
+     *                     or a non-empty string with the explicit {@code id} value
+     * @since 0.2.0
+     */
+    public void setAnnotationId(@Nullable final String annotationId) {
+        this.annotationId = annotationId;
     }
 
     /**

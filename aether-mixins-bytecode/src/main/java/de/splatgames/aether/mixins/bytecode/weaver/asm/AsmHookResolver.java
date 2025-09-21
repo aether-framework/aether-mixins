@@ -114,13 +114,13 @@ public final class AsmHookResolver implements HookResolver {
             final String expected = expectedRedirectHookDesc(
                     entry.getInvokeKind(), entry.getCallOwner(), entry.getCallDesc()
             );
-            if (!expected.equals(mi.desc)) {
+            if (!expected.equals(mi.getDesc())) {
                 problems.warn(path, "Redirect hook descriptor mismatch (expected " + expected +
-                        ", found " + mi.desc + ") at " + internal + "." + mi.name + mi.desc);
+                        ", found " + mi.getDesc() + ") at " + internal + "." + mi.getName() + mi.getDesc());
             }
         }
 
-        return Optional.of(new ResolvedHook(internal, mi.name, mi.desc, mi.invocation));
+        return Optional.of(new ResolvedHook(internal, mi.getName(), mi.getDesc(), mi.getInvocation()));
     }
 
     /**
@@ -151,7 +151,7 @@ public final class AsmHookResolver implements HookResolver {
         }
         final List<CandidateHook> out = new ArrayList<>();
         for (final CandidateHook mi : candidates) {
-            if (wantedId.equals(mi.annotationId)) {
+            if (wantedId.equals(mi.getAnnotationId())) {
                 out.add(mi);
             }
         }

@@ -91,7 +91,7 @@ public final class HookScanner {
                                 @Override
                                 public void visit(final String n, final Object v) {
                                     if ("id".equals(n) && v instanceof String s) {
-                                        holder.annotationId = s;
+                                        holder.setAnnotationId(s);
                                     }
                                 }
                             };
@@ -103,8 +103,8 @@ public final class HookScanner {
                     public void visitEnd() {
                         if (hasRequired[0]) {
                             // Mark as "annotation seen" with an empty id if none was provided explicitly.
-                            if (holder.annotationId == null) {
-                                holder.annotationId = "";
+                            if (holder.getAnnotationId() == null) {
+                                holder.setAnnotationId("");
                             }
                             out.add(holder);
                         }
