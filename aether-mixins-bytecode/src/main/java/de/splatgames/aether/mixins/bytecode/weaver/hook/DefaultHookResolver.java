@@ -2,6 +2,7 @@ package de.splatgames.aether.mixins.bytecode.weaver.hook;
 
 import de.splatgames.aether.mixins.core.api.Inject;
 import de.splatgames.aether.mixins.core.api.Redirect;
+import de.splatgames.aether.mixins.core.api.Shadow;
 import de.splatgames.aether.mixins.core.config.problems.ConfigProblems;
 import de.splatgames.aether.mixins.core.plan.PlannedEntry;
 import de.splatgames.aether.mixins.core.plan.PlannedMixin;
@@ -11,6 +12,7 @@ import org.jetbrains.annotations.Nullable;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -129,6 +131,14 @@ public final class DefaultHookResolver implements HookResolver {
 
         final Method hook = matched.get(0);
         boolean isStatic = Modifier.isStatic(hook.getModifiers());
+
+        // make sure the hook is not abstract unless it's a @Shadow method
+        if (Modifier.isAbstract(hook.getModifiers()) && Arrays.stream(hook.getDeclaredAnnotations())
+                .noneMatch(a -> a.annotationType().equals(Shadow.class))) {
+            problems.error(path, "Invalid abstract hook method: " + sig(hook) +
+                    " (must not be abstract unless annotated @Shadow)");
+            return Optional.empty();
+        }
 
         final String owner = internalName(mixinClass);
         final String name = hook.getName();
