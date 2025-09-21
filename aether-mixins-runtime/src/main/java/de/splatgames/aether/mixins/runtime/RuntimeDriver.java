@@ -27,9 +27,11 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
  * High-level runtime driver that orchestrates configuration loading, refmap parsing,
@@ -96,101 +98,6 @@ public final class RuntimeDriver {
                          @NotNull final RefmapLoader refmapLoader) {
         this.configLoader = Objects.requireNonNull(configLoader, "configLoader");
         this.refmapLoader = Objects.requireNonNull(refmapLoader, "refmapLoader");
-    }
-
-    /**
-     * Executes a full mixing session: load YAML, load refmaps, (optionally) augment from annotated classes, plan, weave.
-     *
-     * <p>The returned {@link RuntimeSession} aggregates inputs/outputs of the run for inspection and reporting.</p>
-     *
-     * @param yamlPath path to the YAML configuration, must not be {@code null}
-     * @param options  selection rules (groups/requires); use {@link SelectionOptions#empty()} for defaults, must not be {@code null}
-     * @param source   class source for reading bytecode, must not be {@code null}
-     * @param sink     class sink for writing transformed bytecode, must not be {@code null}
-     * @param weaver   weaver implementation (should be fully wired, e.g., with its HookResolver), must not be {@code null}
-     * @param problems diagnostics collector for warnings and errors, must not be {@code null}
-     * @return immutable session snapshot containing config, refmaps, plan, weaver result, and timing; never {@code null}
-     * @throws IOException              if reading the YAML fails; other refmap I/O errors are recorded in {@code problems}
-     * @throws IllegalArgumentException if the YAML is syntactically invalid (as signaled by {@link ConfigLoader})
-     * @throws Exception                for fatal weaver errors (depending on safe-mode)
-     */
-    @NotNull
-    public RuntimeSession execute(@NotNull final Path yamlPath,
-                                  @NotNull final SelectionOptions options,
-                                  @NotNull final ClassSource source,
-                                  @NotNull final ClassSink sink,
-                                  @NotNull final Weaver weaver,
-                                  @NotNull final ConfigProblems problems) throws Exception {
-        final long t0 = System.nanoTime();
-
-        final MixinsConfig cfg = this.configLoader.load(yamlPath);
-        final List<Refmap> refmaps = this.loadRefmaps(cfg, yamlPath, problems);
-
-        final List<RefMixin> extraMixins = deduplicateMixins(scanAnnotationMixins(cfg, problems));
-        final WeavePlan plan = new WeavePlanner().plan(refmaps, options, problems, extraMixins);
-
-        final RuntimeConfig rt = cfg.getRuntime();
-        final WeaveRequest request = WeaveRequest.of(plan, source, sink, rt);
-        final WeaveResult result = weaver.weave(request, problems);
-
-        final long durationNanos = System.nanoTime() - t0;
-        return new RuntimeSession(cfg, refmaps, plan, result, durationNanos);
-    }
-
-    /**
-     * Loads all refmaps referenced by the given configuration.
-     *
-     * <p>Paths under {@code mixins[*].files[*]} are resolved relative to the YAML file's parent directory.</p>
-     *
-     * <p>I/O/parse errors for individual refmaps are recorded into {@code problems} (as errors) and skipped.
-     * If no refmaps are loaded successfully, a warning is recorded and an empty list is returned.</p>
-     *
-     * @param cfg      loaded YAML configuration, must not be {@code null}
-     * @param yamlPath path to the YAML file, used as base directory for refmap resolution; must not be {@code null}
-     * @param problems diagnostics collector, must not be {@code null}
-     * @return list of successfully loaded refmaps (possibly empty), never {@code null}
-     */
-    @NotNull
-    private List<Refmap> loadRefmaps(@NotNull final MixinsConfig cfg,
-                                              @NotNull final Path yamlPath,
-                                              @NotNull final ConfigProblems problems) {
-        final Path baseDir = baseDirOf(yamlPath);
-        final List<Refmap> out = new ArrayList<>();
-
-        if (cfg.getMixins().isEmpty()) {
-            problems.warn("mixins", "No mixin sets declared in YAML.");
-            return List.of();
-        }
-
-        for (int i = 0; i < cfg.getMixins().size(); i++) {
-            final MixinSet set = cfg.getMixins().get(i);
-            final String setPath = "mixins[" + i + "]";
-            final List<String> files = (set.getFiles() != null) ? set.getFiles() : List.of();
-            final List<String> classes = (set.getClasses() != null) ? set.getClasses() : List.of();
-
-            if (files.isEmpty() && classes.isEmpty()) {
-                problems.warn(setPath, "Mixin set '" + set.getName() + "' declares neither files nor classes.");
-                continue;
-            }
-
-            for (int j = 0; j < files.size(); j++) {
-                final String file = files.get(j);
-                final String refPath = setPath + ".files[" + j + "]";
-                final Path resolved = resolveRefmapPath(baseDir, file);
-
-                try {
-                    final Refmap rm = this.refmapLoader.load(resolved, problems);
-                    out.add(rm);
-                } catch (final IOException ioe) {
-                    problems.error(refPath, "Failed to read refmap '" + file + "': " + ioe.getMessage());
-                }
-            }
-        }
-
-        if (out.isEmpty()) {
-            problems.warn("refmaps", "No refmaps were loaded successfully.");
-        }
-        return List.copyOf(out);
     }
 
     /**
@@ -314,7 +221,16 @@ public final class RuntimeDriver {
     @NotNull
     private static List<String> extractTargets(@NotNull final Mixin mixinAnno) {
         final String[] annTargets = mixinAnno.targets();
-        return (annTargets != null && annTargets.length > 0) ? List.of(annTargets) : List.of();
+        final String[] valueTargets = Arrays.stream(mixinAnno.value())
+            .map(Class::getName)
+            .toArray(String[]::new);
+        if (annTargets.length == 0 && valueTargets.length > 0) {
+            return List.of(valueTargets);
+        }
+        if (annTargets.length > 0 && valueTargets.length > 0) {
+            return Stream.concat(Arrays.stream(annTargets), Arrays.stream(valueTargets)).toList();
+        }
+        return annTargets.length > 0 ? List.of(annTargets) : List.of();
     }
 
     /**
@@ -400,5 +316,100 @@ public final class RuntimeDriver {
             dedup.put(rm.getClassName(), rm);
         }
         return new ArrayList<>(dedup.values());
+    }
+
+    /**
+     * Executes a full mixing session: load YAML, load refmaps, (optionally) augment from annotated classes, plan, weave.
+     *
+     * <p>The returned {@link RuntimeSession} aggregates inputs/outputs of the run for inspection and reporting.</p>
+     *
+     * @param yamlPath path to the YAML configuration, must not be {@code null}
+     * @param options  selection rules (groups/requires); use {@link SelectionOptions#empty()} for defaults, must not be {@code null}
+     * @param source   class source for reading bytecode, must not be {@code null}
+     * @param sink     class sink for writing transformed bytecode, must not be {@code null}
+     * @param weaver   weaver implementation (should be fully wired, e.g., with its HookResolver), must not be {@code null}
+     * @param problems diagnostics collector for warnings and errors, must not be {@code null}
+     * @return immutable session snapshot containing config, refmaps, plan, weaver result, and timing; never {@code null}
+     * @throws IOException              if reading the YAML fails; other refmap I/O errors are recorded in {@code problems}
+     * @throws IllegalArgumentException if the YAML is syntactically invalid (as signaled by {@link ConfigLoader})
+     * @throws Exception                for fatal weaver errors (depending on safe-mode)
+     */
+    @NotNull
+    public RuntimeSession execute(@NotNull final Path yamlPath,
+                                  @NotNull final SelectionOptions options,
+                                  @NotNull final ClassSource source,
+                                  @NotNull final ClassSink sink,
+                                  @NotNull final Weaver weaver,
+                                  @NotNull final ConfigProblems problems) throws Exception {
+        final long t0 = System.nanoTime();
+
+        final MixinsConfig cfg = this.configLoader.load(yamlPath);
+        final List<Refmap> refmaps = this.loadRefmaps(cfg, yamlPath, problems);
+
+        final List<RefMixin> extraMixins = deduplicateMixins(scanAnnotationMixins(cfg, problems));
+        final WeavePlan plan = new WeavePlanner().plan(refmaps, options, problems, extraMixins);
+
+        final RuntimeConfig rt = cfg.getRuntime();
+        final WeaveRequest request = WeaveRequest.of(plan, source, sink, rt);
+        final WeaveResult result = weaver.weave(request, problems);
+
+        final long durationNanos = System.nanoTime() - t0;
+        return new RuntimeSession(cfg, refmaps, plan, result, durationNanos);
+    }
+
+    /**
+     * Loads all refmaps referenced by the given configuration.
+     *
+     * <p>Paths under {@code mixins[*].files[*]} are resolved relative to the YAML file's parent directory.</p>
+     *
+     * <p>I/O/parse errors for individual refmaps are recorded into {@code problems} (as errors) and skipped.
+     * If no refmaps are loaded successfully, a warning is recorded and an empty list is returned.</p>
+     *
+     * @param cfg      loaded YAML configuration, must not be {@code null}
+     * @param yamlPath path to the YAML file, used as base directory for refmap resolution; must not be {@code null}
+     * @param problems diagnostics collector, must not be {@code null}
+     * @return list of successfully loaded refmaps (possibly empty), never {@code null}
+     */
+    @NotNull
+    private List<Refmap> loadRefmaps(@NotNull final MixinsConfig cfg,
+                                     @NotNull final Path yamlPath,
+                                     @NotNull final ConfigProblems problems) {
+        final Path baseDir = baseDirOf(yamlPath);
+        final List<Refmap> out = new ArrayList<>();
+
+        if (cfg.getMixins().isEmpty()) {
+            problems.warn("mixins", "No mixin sets declared in YAML.");
+            return List.of();
+        }
+
+        for (int i = 0; i < cfg.getMixins().size(); i++) {
+            final MixinSet set = cfg.getMixins().get(i);
+            final String setPath = "mixins[" + i + "]";
+            final List<String> files = (set.getFiles() != null) ? set.getFiles() : List.of();
+            final List<String> classes = (set.getClasses() != null) ? set.getClasses() : List.of();
+
+            if (files.isEmpty() && classes.isEmpty()) {
+                problems.warn(setPath, "Mixin set '" + set.getName() + "' declares neither files nor classes.");
+                continue;
+            }
+
+            for (int j = 0; j < files.size(); j++) {
+                final String file = files.get(j);
+                final String refPath = setPath + ".files[" + j + "]";
+                final Path resolved = resolveRefmapPath(baseDir, file);
+
+                try {
+                    final Refmap rm = this.refmapLoader.load(resolved, problems);
+                    out.add(rm);
+                } catch (final IOException ioe) {
+                    problems.error(refPath, "Failed to read refmap '" + file + "': " + ioe.getMessage());
+                }
+            }
+        }
+
+        if (out.isEmpty()) {
+            problems.warn("refmaps", "No refmaps were loaded successfully.");
+        }
+        return List.copyOf(out);
     }
 }

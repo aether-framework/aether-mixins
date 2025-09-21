@@ -33,11 +33,13 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 /**
  * Java agent entrypoint for <em>Aether Mixins</em>.
@@ -182,8 +184,28 @@ public final class MixinsAgent {
                         continue;
                     }
 
-                    final String[] annTargets = mixinAnno.targets();
-                    final List<String> targets = (annTargets != null && annTargets.length > 0) ? List.of(annTargets) : List.of();
+                    // ensure at least one target is specified
+                    if (Arrays.stream(mixinAnno.targets()).allMatch(String::isBlank)
+                            && Arrays.stream(mixinAnno.value()).allMatch(c -> c == null || c == Object.class)) {
+                        problems.error(setPath + ".classes", "Mixin class '" + cn + "' has no targets; skipping.");
+                        continue;
+                    }
+
+                    // when using Class literals, ensure none are null or Object.class
+                    if (mixinAnno.value().length > 0
+                            && Arrays.stream(mixinAnno.value()).anyMatch(c -> c == null || c == Object.class)) {
+                        problems.error(setPath + ".classes", "Mixin class '" + cn + "' has invalid @Mixin.value(); skipping.");
+                        continue;
+                    }
+
+                    // merge targets() + value() (binary names), preserving order: targets() first, then value()
+                    final String[] annTargets = Stream
+                            .of(mixinAnno.targets(), Arrays.stream(mixinAnno.value()).map(Class::getName).toArray(String[]::new))
+                            .flatMap(Arrays::stream)
+                            .distinct()
+                            .toArray(String[]::new);
+
+                    final List<String> targets = annTargets.length > 0 ? List.of(annTargets) : List.of();
                     if (targets.isEmpty()) {
                         problems.error(setPath + ".classes", "Mixin class '" + cn + "' has no targets; skipping.");
                         continue;

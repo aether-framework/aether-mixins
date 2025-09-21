@@ -14,6 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Builds a {@link Refmap} directly from {@link Mixin} classes by scanning their annotated hook methods.
@@ -64,7 +65,7 @@ public final class AnnotationRefmapBuilder {
             rm.setPriority(mixinAnn.priority());
 
             // targets (dedup + trim basic)
-            final List<String> targets = dedupStrings(Arrays.asList(mixinAnn.targets()));
+            final List<String> targets = dedupStrings(List.of(Stream.of(mixinAnn.targets(), Arrays.stream(mixinAnn.value()).map(Class::getName).toArray(String[]::new)).flatMap(Arrays::stream).toArray(String[]::new)));
             if (targets.isEmpty()) {
                 problems.error(mixinClass.getName() + ".targets", "@Mixin targets() must not be empty");
             }

@@ -81,6 +81,21 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
 public @interface Mixin {
 
     /**
+     * Alternative to {@link #targets()} using {@link Class} literals.
+     *
+     * <p>This is a compile-time convenience feature. The runtime still resolves targets by name only.
+     * Using {@code Class} literals may cause class loading and linkage errors if the target classes
+     * are not present at runtime.</p>
+     *
+     * <p>Example: {@code Service.class}</p>
+     *
+     * @return array of target class literals (must not be empty if used)
+     * @see #targets()
+     * @since 0.2.0
+     */
+    Class[] value() default {};
+
+    /**
      * Fully-qualified binary names of classes this mixin should apply to.
      *
      * <p>Example: {@code "com.example.Service"}</p>

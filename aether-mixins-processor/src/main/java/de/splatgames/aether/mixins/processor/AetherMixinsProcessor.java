@@ -32,11 +32,13 @@ import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Annotation processor that collects {@link Mixin}, {@link Inject}, and {@link Redirect}
@@ -58,7 +60,8 @@ import java.util.Set;
  * <ul>
  *   <li><b>Entry id:</b> The hook entry id is the method signature {@code name+descriptor}
  *       (e.g., {@code onHead()V}). This gives the weaver a deterministic way to locate hook methods.</li>
- *   <li><b>Targets:</b> Taken from {@link Mixin#targets()} as binary names (e.g., {@code com.example.Foo}).</li>
+ *   <li><b>Targets:</b> Taken from {@link Mixin#targets()} and {@link Mixin#value()}; use binary names
+ *       (e.g., {@code com.example.Foo}).</li>
  *   <li><b>Descriptors:</b> JVM format like {@code (I)I}; redirect owners use internal JVM names
  *       (e.g., {@code com/example/Foo}).</li>
  * </ul>
@@ -193,7 +196,7 @@ public final class AetherMixinsProcessor extends AbstractProcessor {
             final CollectedMixin cm = new CollectedMixin(
                     mixinType,
                     DescriptorUtil.binaryName(mixinType, this.elements),
-                    List.of(mixin.targets()),
+                    List.of(Stream.of(mixin.targets(), Arrays.stream(mixin.value()).map(Class::getName).toArray(String[]::new)).flatMap(Arrays::stream).toArray(String[]::new)),
                     mixin.priority(),
                     List.of(mixin.groups()),
                     List.of(mixin.requires()),
