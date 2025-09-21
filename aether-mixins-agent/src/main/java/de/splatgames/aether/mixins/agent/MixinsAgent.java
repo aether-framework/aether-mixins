@@ -1,9 +1,9 @@
 package de.splatgames.aether.mixins.agent;
 
 import de.splatgames.aether.mixins.bytecode.weaver.asm.AsmWeaver;
+import de.splatgames.aether.mixins.bytecode.weaver.asm.util.MixinMeta;
 import de.splatgames.aether.mixins.bytecode.weaver.hook.DefaultHookResolver;
 import de.splatgames.aether.mixins.core.api.Inject;
-import de.splatgames.aether.mixins.core.api.Mixin;
 import de.splatgames.aether.mixins.core.api.Redirect;
 import de.splatgames.aether.mixins.core.config.ConfigLoader;
 import de.splatgames.aether.mixins.core.config.YamlConfigLoader;
@@ -23,6 +23,10 @@ import de.splatgames.aether.mixins.core.plan.WeavePlanner;
 import de.splatgames.aether.mixins.core.weaver.spi.Weaver;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.AnnotationNode;
+import org.objectweb.asm.tree.ClassNode;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -33,13 +37,14 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Stream;
+
+import static org.objectweb.asm.Opcodes.ASM9;
 
 /**
  * Java agent entrypoint for <em>Aether Mixins</em>.
@@ -178,36 +183,27 @@ public final class MixinsAgent {
                 try {
                     final Class<?> mixinClass = Class.forName(cn, false, cl);
 
-                    final Mixin mixinAnno = mixinClass.getAnnotation(Mixin.class);
-                    if (mixinAnno == null) {
+                    final MixinMeta mixinMeta = readMixinMetaFromBytes(cn, cl);
+                    if (mixinMeta == null || !mixinMeta.hasMixin()) {
                         problems.warn(setPath + ".classes", "Class '" + cn + "' lacks @Mixin — skipped.");
                         continue;
                     }
 
-                    // ensure at least one target is specified
-                    if (Arrays.stream(mixinAnno.targets()).allMatch(String::isBlank)
-                            && Arrays.stream(mixinAnno.value()).allMatch(c -> c == null || c == Object.class)) {
-                        problems.error(setPath + ".classes", "Mixin class '" + cn + "' has no targets; skipping.");
-                        continue;
-                    }
+                    final List<String> targets = new ArrayList<>();
+                    targets.addAll(mixinMeta.getTargets());
+                    targets.addAll(mixinMeta.getValues());
 
-                    // when using Class literals, ensure none are null or Object.class
-                    if (mixinAnno.value().length > 0
-                            && Arrays.stream(mixinAnno.value()).anyMatch(c -> c == null || c == Object.class)) {
-                        problems.error(setPath + ".classes", "Mixin class '" + cn + "' has invalid @Mixin.value(); skipping.");
-                        continue;
-                    }
+                    targets.removeIf(s -> s == null || s.isBlank() || "java.lang.Object".equals(s));
+                    targets.retainAll(new LinkedHashSet<>(targets)); // preserve order
 
-                    // merge targets() + value() (binary names), preserving order: targets() first, then value()
-                    final String[] annTargets = Stream
-                            .of(mixinAnno.targets(), Arrays.stream(mixinAnno.value()).map(Class::getName).toArray(String[]::new))
-                            .flatMap(Arrays::stream)
-                            .distinct()
-                            .toArray(String[]::new);
-
-                    final List<String> targets = annTargets.length > 0 ? List.of(annTargets) : List.of();
                     if (targets.isEmpty()) {
                         problems.error(setPath + ".classes", "Mixin class '" + cn + "' has no targets; skipping.");
+                        continue;
+                    }
+
+                    if (targets.remove("java.lang.Object")) {
+                        problems.error(setPath + ".classes",
+                                "Mixin class '" + cn + "' has invalid @Mixin.value() entry: java.lang.Object.");
                         continue;
                     }
 
@@ -232,7 +228,7 @@ public final class MixinsAgent {
                     rm.setClassName(mixinClass.getName());
                     rm.setTargets(targets);
                     rm.setEntries(entries);
-                    rm.setPriority(mixinAnno.priority());
+                    rm.setPriority(mixinMeta.getPriority());
                     rm.setGroups(List.of());
                     rm.setRequires(List.of());
                     rm.setConflictsWith(List.of());
@@ -476,6 +472,58 @@ public final class MixinsAgent {
             inst.retransformClasses(toRetransform.toArray(new Class<?>[0]));
         } catch (final Throwable e) {
             System.err.println("[Aether Mixins] Failed to retransform some classes: " + e);
+        }
+    }
+
+    /**
+     * Reads {@link de.splatgames.aether.mixins.core.api.Mixin @Mixin} annotation data from the class bytes of the given class.
+     *
+     * @param mixinBinaryName binary name of the mixin class, never {@code null}
+     * @param cl              classloader to load the class bytes from, never {@code null}
+     * @return parsed mixin metadata or {@code null} if the class cannot be read
+     * @throws NullPointerException if {@code mixinBinaryName} or {@code cl} is {@code null}
+     * @since 0.2.0
+     */
+    @Nullable
+    private static MixinMeta readMixinMetaFromBytes(@NotNull final String mixinBinaryName, @NotNull final ClassLoader cl) {
+        final String res = mixinBinaryName.replace('.', '/') + ".class";
+        try (var in = cl.getResourceAsStream(res)) {
+            if (in == null) return null;
+            final ClassReader cr = new ClassReader(in);
+            final ClassNode node = new ClassNode(ASM9);
+            cr.accept(node, ClassReader.SKIP_CODE | ClassReader.SKIP_FRAMES);
+
+            if (node.visibleAnnotations == null) return new MixinMeta(false);
+
+            AnnotationNode mixin = null;
+            for (var an : node.visibleAnnotations) {
+                if ("Lde/splatgames/aether/mixins/core/api/Mixin;".equals(an.desc)) {
+                    mixin = an;
+                    break;
+                }
+            }
+            if (mixin == null) return new MixinMeta(false);
+
+            final MixinMeta meta = new MixinMeta(true);
+
+            // parse elements
+            if (mixin.values != null) {
+                for (int i = 0; i < mixin.values.size(); i += 2) {
+                    final String k = (String) mixin.values.get(i);
+                    final Object v = mixin.values.get(i + 1);
+
+                    if ("targets".equals(k) && v instanceof List<?> lst) {
+                        for (Object o : lst) if (o instanceof String s) meta.getTargets().add(s);
+                    } else if ("value".equals(k) && v instanceof List<?> lst) {
+                        for (Object o : lst) if (o instanceof Type t) meta.getValues().add(t.getClassName());
+                    } else if ("priority".equals(k) && v instanceof Integer p) {
+                        meta.setPriority(p);
+                    }
+                }
+            }
+            return meta;
+        } catch (final Exception e) {
+            return null;
         }
     }
 }
