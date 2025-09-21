@@ -9,6 +9,8 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.LocalVariablesSorter;
 
+import java.util.function.BiFunction;
+
 import static org.objectweb.asm.Opcodes.ALOAD;
 import static org.objectweb.asm.Opcodes.ARETURN;
 import static org.objectweb.asm.Opcodes.DRETURN;
@@ -116,6 +118,30 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
     private boolean applied = false;
 
     /**
+     * Internal JVM class name of the target owner when injecting into instance methods.
+     * Used to lookup final method names for merged instance hooks.
+     * If null, no renaming is applied.
+     */
+    private String targetOwnerInternalName;
+
+    /**
+     * Function to lookup final method names for merged instance hooks.
+     * If null, no renaming is applied.
+     * <p>
+     * The function is called with two parameters:
+     * <ol>
+     *     <li>String owner+name+desc (e.g., com/example/F
+     *     oo#bar(I)V)</li>
+     *     <li>String unused (reserved for future use)</li>
+     *     </ol>
+     * It must return the final name (e.g., bar$1) or null if no rename occurred.
+     * <b>Note:</b> the function must not throw exceptions, as it
+     * is called during bytecode weaving.
+     * </p>
+     */
+    private BiFunction<String, String, String> finalNameLookup = null;
+
+    /**
      * Constructs a new adapter that injects a hook call at method entry.
      *
      * @param api         ASM API level to use
@@ -153,6 +179,28 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
         this.markChanged = markChanged;
         this.problems = problems;
         this.ctx = "inject/TAIL " + cls + "." + sig + " id=" + id;
+    }
+
+    /**
+     * Configures the target owner and final name lookup function for merged instance hooks.
+     * <p>
+     * When injecting into instance methods, the target owner is used to lookup final method names
+     * for merged instance hooks via {@link #finalNameLookup}.
+     * </p>
+     * <p>
+     * If not configured, no renaming is applied.
+     * </p>
+     *
+     * @param targetOwner internal JVM class name of the target owner (e.g., {@code com/example/Foo}); must not be {@code null}
+     * @param lookup      function to lookup final method names; must not be {@code null}
+     * @return this adapter instance for chaining
+     */
+    @NotNull
+    public InjectTailAdapter withInstanceCallContext(@NotNull final String targetOwner,
+                                                     @NotNull final BiFunction<String, String, String> lookup) {
+        this.targetOwnerInternalName = targetOwner;
+        this.finalNameLookup = lookup;
+        return this;
     }
 
     /**
@@ -248,10 +296,33 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
                 HookShape.emitLoadCallbackInfoReturnableIfNeeded(this, kind, cbLocal);
             }
 
-            super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+            // Ensure receiver for instance hooks when the hook descriptor does NOT take OWNER as a parameter.
+            if (this.hook.invocation().isInstance() && !HookShape.requiresThis(kind)) {
+                // Receiver must be pushed before args for an instance invoke
+                this.visitVarInsn(ALOAD, 0);
+            }
+
+            // Call hook (switch STATIC vs INSTANCE)
+            if (this.hook.invocation().isStatic()) {
+                super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+            } else {
+                if (this.targetOwnerInternalName == null) {
+                    throw new IllegalStateException("Instance inject (tail) requires target owner context");
+                }
+                String callName = this.hook.name();
+                if (this.finalNameLookup != null) {
+                    final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
+                    final String resolved = this.finalNameLookup.apply(k, null);
+                    if (resolved != null) callName = resolved;
+                }
+                // Use INVOKESPECIAL to call the merged instance hook on the target class
+                super.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKESPECIAL, this.targetOwnerInternalName, callName, this.hook.desc(), false);
+            }
+
             this.markChanged.run();
             this.applied = true;
 
+            // restore return value if needed, then emit original return (unchanged below)
             if (!isVoid) {
                 if (usesCIR) {
                     this.visitVarInsn(ALOAD, cbLocal);
@@ -260,7 +331,6 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
                     HookShape.loadReturnValueFromLocal(this, this.targetDesc, retLocal);
                 }
             }
-
             super.visitInsn(opcode);
             return;
         }

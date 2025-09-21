@@ -11,6 +11,8 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.LocalVariablesSorter;
 
+import java.util.function.BiFunction;
+
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 
 /**
@@ -120,21 +122,45 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
     private boolean injectedAfterCtor = false;
 
     /**
+     * Internal JVM class name of the target owner when injecting into instance methods.
+     * Used to lookup final method names for merged instance hooks.
+     * If null, no renaming is applied.
+     */
+    private String targetOwnerInternalName;
+
+    /**
+     * Function to lookup final method names for merged instance hooks.
+     * If null, no renaming is applied.
+     * <p>
+     * The function is called with two parameters:
+     * <ol>
+     *     <li>String owner+name+desc (e.g., com/example/F
+     *     oo#bar(I)V)</li>
+     *     <li>String unused (reserved for future use)</li>
+     *     </ol>
+     * It must return the final name (e.g., bar$1) or null if no rename occurred.
+     * <b>Note:</b> the function must not throw exceptions, as it
+     * is called during bytecode weaving.
+     * </p>
+     */
+    private BiFunction<String, String, String> finalNameLookup = null;
+
+    /**
      * Constructs a new adapter that injects a hook call at method entry.
      *
-     * @param methodName  name of the target method (for diagnostics); must not be {@code null}
-     * @param api         ASM API level to use
-     * @param mv          downstream method visitor to delegate to; must not be {@code null}
+     * @param methodName    name of the target method (for diagnostics); must not be {@code null}
+     * @param api           ASM API level to use
+     * @param mv            downstream method visitor to delegate to; must not be {@code null}
      * @param ownerInternal internal JVM class name of the target method (e.g., {@code com/example/Foo}); must not be {@code null}
-     * @param targetAccess access flags of the target method (e.g., {@code ACC_PUBLIC | ACC_STATIC})
-     * @param targetDesc  method descriptor of the target method (e.g., {@code (I)V}); must not be {@code null}
-     * @param hook        resolved hook to invoke; must not be {@code null} and must be {@code ()V}
-     * @param optional    whether to tolerate a missing injection (no code visited) without failing
-     * @param id          developer-defined identifier used in diagnostics; must not be {@code null}
-     * @param markChanged callback invoked when the injection is applied; must not be {@code null}
-     * @param problems    diagnostics sink for potential future reporting; must not be {@code null}
-     * @param cls         internal JVM class name for diagnostics (e.g., {@code com/example/Foo}); must not be {@code null}
-     * @param sig         method signature {@code name+desc} for diagnostics (e.g., {@code bar(I)V}); must not be {@code null}
+     * @param targetAccess  access flags of the target method (e.g., {@code ACC_PUBLIC | ACC_STATIC})
+     * @param targetDesc    method descriptor of the target method (e.g., {@code (I)V}); must not be {@code null}
+     * @param hook          resolved hook to invoke; must not be {@code null} and must be {@code ()V}
+     * @param optional      whether to tolerate a missing injection (no code visited) without failing
+     * @param id            developer-defined identifier used in diagnostics; must not be {@code null}
+     * @param markChanged   callback invoked when the injection is applied; must not be {@code null}
+     * @param problems      diagnostics sink for potential future reporting; must not be {@code null}
+     * @param cls           internal JVM class name for diagnostics (e.g., {@code com/example/Foo}); must not be {@code null}
+     * @param sig           method signature {@code name+desc} for diagnostics (e.g., {@code bar(I)V}); must not be {@code null}
      */
     public InjectHeadAdapter(final int api,
                              @NotNull final String methodName,
@@ -163,6 +189,28 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
     }
 
     /**
+     * Configures the instance method context for final name lookup.
+     *
+     * <p>This is only relevant when the target method is an instance method
+     * and the hook is a merged instance hook (i.e., it was renamed to avoid collisions).
+     * In this case, the final name is looked up via {@link #finalNameLookup}.</p>
+     *
+     * <p>If either {@code targetOwner} or {@code lookup} is {@code null},
+     * no final name lookup is performed.</p>
+     *
+     * @param targetOwner internal JVM class name of the target owner (e.g., {@code com/example/Foo}); must not be {@code null}
+     * @param lookup      function to lookup final method names; must not be {@code null}
+     * @return this adapter instance for chaining
+     */
+    @NotNull
+    public InjectHeadAdapter withInstanceCallContext(@NotNull final String targetOwner,
+                                                     @NotNull final BiFunction<String, String, String> lookup) {
+        this.targetOwnerInternalName = targetOwner;
+        this.finalNameLookup = lookup;
+        return this;
+    }
+
+    /**
      * Injects the hook call at method entry.
      *
      * <p>If the hook descriptor is incompatible with the target method, a non-optional injection
@@ -170,6 +218,10 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
      */
     @Override
     public void visitCode() {
+        // TODO: Consider supporting instance hooks whose descriptor includes OWNER *and* needs receiver.
+        // Current logic ensures exactly one 'this': if descriptor lacks OWNER, we push receiver explicitly;
+        // if descriptor includes OWNER, HookShape emits it. Never push both.
+
         super.visitCode();
         if ("<init>".equals(this.methodName)) {
             // Constructor: do nothing here; we’ll inject right after the super/this-ctor call.
@@ -211,6 +263,13 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
         if (HookShape.requiresThis(kind)) {
             HookShape.emitThisIfNeeded(this, kind);
         }
+
+        // Ensure receiver for instance hooks when the hook descriptor does NOT take OWNER as a parameter.
+        if (this.hook.invocation().isInstance() && !HookShape.requiresThis(kind)) {
+            // Receiver must be pushed before args for an instance invoke
+            super.visitVarInsn(Opcodes.ALOAD, 0);
+        }
+
         int local = instance ? 1 : 0;
         if (HookShape.passesArgs(kind)) {
             local = HookShape.emitArgs(this, this.targetDesc, local);
@@ -228,8 +287,23 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
             HookShape.emitLoadCallbackInfoReturnableIfNeeded(this, kind, cbLocal);
         }
 
-        // Call hook
-        super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+        // Call hook (switch STATIC vs INSTANCE)
+        if (this.hook.invocation().isStatic()) {
+            super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+        } else {
+            if (this.targetOwnerInternalName == null) {
+                throw new IllegalStateException("Instance inject requires target owner context");
+            }
+            String callName = this.hook.name();
+            if (this.finalNameLookup != null) {
+                final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
+                final String resolved = this.finalNameLookup.apply(k, null);
+                if (resolved != null) callName = resolved;
+            }
+            // Use INVOKESPECIAL to call the merged instance hook on the target class
+            super.visitMethodInsn(Opcodes.INVOKESPECIAL, this.targetOwnerInternalName, callName, this.hook.desc(), false);
+        }
+
         this.markChanged.run();
         this.applied = true;
 
@@ -321,7 +395,28 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
                 HookShape.emitLoadCallbackInfoIfNeeded(this, kind, ciLocal);
             }
 
-            super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+            // Call hook (switch STATIC vs INSTANCE)
+            if (this.hook.invocation().isStatic()) {
+                super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+            } else {
+                if (this.targetOwnerInternalName == null) {
+                    throw new IllegalStateException("Instance inject (ctor) requires target owner context");
+                }
+                String callName = this.hook.name();
+                if (this.finalNameLookup != null) {
+                    final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
+                    final String resolved = this.finalNameLookup.apply(k, null);
+                    if (resolved != null) callName = resolved;
+                }
+
+                // Ensure receiver for instance hooks when the hook descriptor does NOT take OWNER as a parameter.
+                if (!HookShape.requiresThis(kind)) {
+                    super.visitVarInsn(Opcodes.ALOAD, 0); // 'this' for ctor is in local 0
+                }
+
+                super.visitMethodInsn(Opcodes.INVOKESPECIAL, this.targetOwnerInternalName, callName, this.hook.desc(), false);
+            }
+
             this.markChanged.run();
             this.applied = true;
 

@@ -10,4 +10,12 @@ public enum HookInvocation {
     public static HookInvocation isStatic(final boolean isStatic) {
         return isStatic ? STATIC : INSTANCE;
     }
+
+    public boolean isStatic() {
+        return this == STATIC;
+    }
+
+    public boolean isInstance() {
+        return this == INSTANCE;
+    }
 }

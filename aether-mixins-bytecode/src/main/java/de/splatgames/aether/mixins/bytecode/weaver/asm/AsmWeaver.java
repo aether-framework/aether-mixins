@@ -2,6 +2,7 @@ package de.splatgames.aether.mixins.bytecode.weaver.asm;
 
 import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.InjectHeadAdapter;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.InjectTailAdapter;
+import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.PremergeInstanceHooksAdapter;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.RedirectAdapter;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.spec.InjectionSpec;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.spec.RedirectSpec;
@@ -22,6 +23,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.tree.ClassNode;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -46,7 +48,6 @@ import static org.objectweb.asm.Opcodes.ASM9;
  *   <li><b>Inject</b>:
  *     <ul>
  *       <li>Join points: {@link Inject.At#HEAD} and {@link Inject.At#TAIL}.</li>
- *       <li>Hook methods must be {@code static}.</li>
  *       <li>Method descriptors are fully supported and validated upstream.</li>
  *     </ul>
  *   </li>
@@ -234,11 +235,9 @@ public final class AsmWeaver implements Weaver {
                     }
                     final ResolvedHook rh = rhOpt.get();
                     switch (pe.getKind()) {
-                        case INJECT -> {
-                            cw.getInjects()
-                                    .computeIfAbsent(this.sigOf(pe.getMethod()), k -> new ArrayList<>())
-                                    .add(new InjectionSpec(pe.getAt(), rh, pe.isOptional(), pe.isRemap(), pe.getId(), mixin.getPriority()));
-                        }
+                        case INJECT -> cw.getInjects()
+                                .computeIfAbsent(this.sigOf(pe.getMethod()), k -> new ArrayList<>())
+                                .add(new InjectionSpec(pe.getAt(), rh, pe.isOptional(), pe.isRemap(), pe.getId(), mixin.getPriority()));
                         case REDIRECT ->
                                 cw.getRedirects().computeIfAbsent(this.sigOf(pe.getMethod()), k -> new ArrayList<>())
                                 .add(new RedirectSpec(pe.getCallOwner(), pe.getCallName(), pe.getCallDesc(),
@@ -298,7 +297,7 @@ public final class AsmWeaver implements Weaver {
 
         final ChangeFlag changed = new ChangeFlag();
 
-        final ClassVisitor cv = new ClassVisitor(ASM9, cw) {
+        ClassVisitor cv = new ClassVisitor(ASM9, cw) {
             @Override
             public MethodVisitor visitMethod(final int access,
                                              @NotNull final String name,
@@ -328,7 +327,7 @@ public final class AsmWeaver implements Weaver {
                             r.hook(), r.optional(), r.id(),
                             changed::getAndSet,
                             problems, internalName, sig
-                    );
+                    ).withInstanceCallContext(internalName, FinalNameRegistry::lookup);
                 }
 
                 // Split injects by kind and sort deterministically
@@ -355,7 +354,7 @@ public final class AsmWeaver implements Weaver {
                             t.hook(), t.optional(), t.id(),
                             changed::getAndSet,
                             problems, internalName, sig
-                    );
+                    ).withInstanceCallContext(internalName, FinalNameRegistry::lookup);
                 }
                 for (final InjectionSpec h : headSorted) {
                     mv = new InjectHeadAdapter(
@@ -364,11 +363,19 @@ public final class AsmWeaver implements Weaver {
                             h.hook(), h.optional(), h.id(),
                             changed::getAndSet,
                             problems, internalName, sig
-                    );
+                    ).withInstanceCallContext(internalName, FinalNameRegistry::lookup);
                 }
                 return mv;
             }
         };
+
+        final boolean needsInstanceMerge =
+                work.getInjects().values().stream().flatMap(List::stream).anyMatch(s -> s.hook().invocation().isInstance()) ||
+                        work.getRedirects().values().stream().flatMap(List::stream).anyMatch(s -> s.hook().invocation().isInstance());
+
+        if (needsInstanceMerge) {
+            cv = new PremergeInstanceHooksAdapter(ASM9, cv, internalName, work, request, problems);
+        }
 
         cr.accept(cv, acceptFlags);
         return changed.isSet() ? cw.toByteArray() : null;

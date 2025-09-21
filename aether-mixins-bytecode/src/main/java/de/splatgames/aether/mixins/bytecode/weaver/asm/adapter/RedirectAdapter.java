@@ -7,6 +7,7 @@ import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.MethodVisitor;
 
 import java.util.Objects;
+import java.util.function.BiFunction;
 
 import static org.objectweb.asm.Opcodes.INVOKEINTERFACE;
 import static org.objectweb.asm.Opcodes.INVOKESPECIAL;
@@ -117,22 +118,43 @@ public final class RedirectAdapter extends MethodVisitor {
     @NotNull
     @SuppressWarnings("unused, FieldCanBeLocal")
     private final String ctx;
-
-    /**
-     * Number of matching occurrences seen so far at this call site.
-     */
-    private int seen = 0;
-
-    /**
-     * Tracks whether any call site has been rewritten.
-     */
-    private boolean applied = false;
-
     /**
      * Internal JVM name (slash-separated) of the current class for JDK quirk handling.
      */
     @NotNull
     private final String thisClass;
+    /**
+     * Number of matching occurrences seen so far at this call site.
+     */
+    private int seen = 0;
+    /**
+     * Tracks whether any call site has been rewritten.
+     */
+    private boolean applied = false;
+    /**
+     * Internal JVM name (slash-separated) of the target class for instance call context hooks.
+     * Set via {@link #withInstanceCallContext(String)} before visiting method instructions.
+     */
+    private String targetOwnerInternalName;
+
+    /**
+     * Lookup function for final method names after merging (only when collisions caused a rename).
+     * Set via {@link #withFinalNameLookup(BiFunction)} before visiting method instructions.
+     *
+     * <p>
+     * The function is called with two parameters:
+     * <ol>
+     *     <li>String owner+name+desc (e.g., com/example/F
+     *     oo#bar(I)V)</li>
+     *     <li>String unused (reserved for future use)</li>
+     *     </ol>
+     * It must return the final name (e.g., bar$1) or null if no rename occurred.
+     * <b>Note:</b> the function must not throw exceptions, as it
+     * is called during bytecode weaving.
+     * </p>
+     */
+    private BiFunction<String, String, String> finalNameLookup = null;
+
 
     /**
      * Constructs a new redirect adapter that rewrites qualifying invokes to the given hook.
@@ -181,6 +203,13 @@ public final class RedirectAdapter extends MethodVisitor {
         this.thisClass = cls;
     }
 
+    public RedirectAdapter withInstanceCallContext(@NotNull final String targetOwner,
+                                                   @NotNull final BiFunction<String, String, String> lookup) {
+        this.targetOwnerInternalName = targetOwner;
+        this.finalNameLookup = lookup;
+        return this;
+    }
+
     /**
      * Intercepts method invocation instructions, and when the current instruction matches
      * the configured redirect specification (see {@link #matches(int, String, String, String, boolean)}),
@@ -199,9 +228,42 @@ public final class RedirectAdapter extends MethodVisitor {
                                 @NotNull final String descriptor,
                                 final boolean isInterface) {
         if (this.matches(opcode, owner, name, descriptor, isInterface)) {
+            // TODO: Support non-self instance redirects (Sponge-style).
+            // Approach: keep redirect handlers STATIC and pass original receiver as first arg.
+            // Steps: validate handler descriptor (receiver + args), always INVOKESTATIC to hook,
+            // then remove the self-call guard here once implemented.
             final int current = this.seen++;
             if (this.ordinal < 0 || this.ordinal == current) {
-                super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+
+                if (this.hook.invocation().isStatic()) {
+                    super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+                } else {
+                    // We only support rewriting self-calls, because the merged hook lives in the target class.
+                    if (this.targetOwnerInternalName == null) {
+                        throw new IllegalStateException("Instance redirect requires target owner context");
+                    }
+                    if (!owner.equals(this.thisClass)) {
+                        // Not a self-call: the original receiver type ≠ target class, cannot invoke merged instance hook.
+                        // Either fail hard or degrade gracefully. We fail to avoid silent miscompiles.
+                        throw new IllegalStateException(
+                                "Instance redirect only supported for self calls: call owner=" + owner +
+                                        ", target=" + this.thisClass + ", id=" + this.id);
+                    }
+
+                    // Use potentially renamed final method name (if @Unique caused a rename during pre-merge)
+                    String callName = this.hook.name();
+                    if (this.finalNameLookup != null) {
+                        final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
+                        final String resolved = this.finalNameLookup.apply(k, null);
+                        if (resolved != null) callName = resolved;
+                    }
+
+                    // Stack note:
+                    // For a self-call, the original receiver 'this' is already on the stack.
+                    // We just replace the call site to invoke our merged method on the same 'this'.
+                    super.visitMethodInsn(INVOKESPECIAL, this.targetOwnerInternalName, callName, this.hook.desc(), false);
+                }
+
                 this.markChanged.run();
                 this.applied = true;
                 return;
@@ -209,6 +271,7 @@ public final class RedirectAdapter extends MethodVisitor {
         }
         super.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
     }
+
 
     /**
      * Ensures that at least one call site was rewritten unless the redirect is marked as optional.
