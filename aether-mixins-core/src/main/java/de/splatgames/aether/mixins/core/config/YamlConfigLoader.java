@@ -130,6 +130,7 @@ public final class YamlConfigLoader implements ConfigLoader {
         rt.setSafeMode(root.getBoolean(YamlConfigurationConstants.K_RUNTIME_SAFE, true));
         rt.setVerifyFramesString(root.getString(YamlConfigurationConstants.K_RUNTIME_VERIFY, "strict"), YamlConfigurationConstants.K_RUNTIME_VERIFY);
         rt.setDumpClassesOnError(root.getBoolean(YamlConfigurationConstants.K_RUNTIME_DUMP, false));
+        rt.setAllowFinalFieldWeakening(root.getBoolean(YamlConfigurationConstants.K_RUNTIME_ALLOW_FINAL_FIELD_WEAKENING, false));
 
         return rt;
     }

@@ -68,6 +68,37 @@ public final class RuntimeConfig {
     private boolean dumpClassesOnError = false;
 
     /**
+     * When {@code true}, allows weakening of {@code final} field semantics for
+     * fields annotated with {@code @Mutable} (see {@link de.splatgames.aether.mixins.core.api.Mutable}).
+     *
+     * <p>This option is <strong>disabled by default</strong> due to the extreme
+     * risks and dangers associated with breaking {@code final} semantics.
+     * It should only be enabled in rare, well-documented edge cases where
+     * no other solution is feasible.</p>
+     *
+     * <p>Enabling this option allows the Mixin weaver to generate access bridges
+     * or use low-level mechanisms (e.g., {@code VarHandle}, {@code Unsafe})
+     * to permit controlled mutation of {@code final} fields in specific hook contexts.
+     * However, it does not override the requirement that each field must be
+     * explicitly annotated with {@code @Mutable} and provide a valid
+     * {@link de.splatgames.aether.mixins.core.api.Mutable#reason() reason}.</p>
+     *
+     * <p>Risks of enabling this option include:</p>
+     * <ul>
+     *   <li>JIT compiler optimizations may inline final fields, leading to inconsistent behavior after mutation.</li>
+     *   <li>Breaking immutability can introduce severe thread-safety and memory visibility issues.</li>
+     *   <li>This feature should never be used as a general-purpose tool, but only in rare, well-justified cases.</li>
+     * </ul>
+     *
+     * <p>When enabling this option, it is strongly recommended to audit all uses of {@code @Mutable}
+     * in the codebase to ensure that each instance is justified and documented.</p>
+     *
+     * @see de.splatgames.aether.mixins.core.api.Mutable
+     * @since 0.2.0
+     */
+    private boolean allowFinalFieldWeakening = false;
+
+    /**
      * Creates a new {@code RuntimeConfig} bound to the given diagnostics container.
      *
      * @param problems the problem collector used to record warnings/errors, must not be {@code null}
@@ -131,7 +162,7 @@ public final class RuntimeConfig {
      * {@link VerifyFrames#STRICT}.</p>
      *
      * @param verifyFramesValue string value to parse; if {@code null}, this method does nothing
-     * @param path configuration path used for diagnostics (e.g., {@code "runtime.verify_frames"}), must not be {@code null}
+     * @param path              configuration path used for diagnostics (e.g., {@code "runtime.verify_frames"}), must not be {@code null}
      */
     public void setVerifyFramesString(@Nullable final String verifyFramesValue, @NotNull final String path) {
         if (verifyFramesValue == null) {
@@ -165,6 +196,26 @@ public final class RuntimeConfig {
      */
     public void setDumpClassesOnError(final boolean dumpClassesOnError) {
         this.dumpClassesOnError = dumpClassesOnError;
+    }
+
+    /**
+     * Returns whether weakening of {@code final} field semantics is allowed.
+     *
+     * @return {@code true} if final field weakening is allowed, {@code false} otherwise
+     * @since 0.2.0
+     */
+    public boolean isAllowFinalFieldWeakening() {
+        return this.allowFinalFieldWeakening;
+    }
+
+    /**
+     * Enables or disables weakening of {@code final} field semantics.
+     *
+     * @param allowFinalFieldWeakening {@code true} to allow final field weakening
+     * @since 0.2.0
+     */
+    public void setAllowFinalFieldWeakening(final boolean allowFinalFieldWeakening) {
+        this.allowFinalFieldWeakening = allowFinalFieldWeakening;
     }
 
     /**

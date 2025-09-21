@@ -70,6 +70,19 @@ public final class YamlConfigurationConstants {
     public static final String K_RUNTIME_DUMP = "runtime.dump_classes_on_error";
 
     /**
+     * Flag to allow weakening of final field semantics.
+     *
+     * <p>Path: {@code runtime.allow_final_field_weakening}. When {@code true},
+     * fields annotated with {@code @Mutable} may have their {@code final}
+     * semantics weakened by the mixin framework.</p>
+     *
+     * @see de.splatgames.aether.mixins.core.api.Mutable
+     * @see de.splatgames.aether.mixins.core.config.runtime.RuntimeConfig#isAllowFinalFieldWeakening() RuntimeConfig.isAllowFinalFieldWeakening()
+     * @since 0.2.0
+     */
+    public static final String K_RUNTIME_ALLOW_FINAL_FIELD_WEAKENING = "runtime.allow_final_field_weakening";
+
+    /**
      * Top-level list of mixin set declarations.
      *
      * <p>Path: {@code mixins}. Each entry describes a named set of refmap files.</p>
