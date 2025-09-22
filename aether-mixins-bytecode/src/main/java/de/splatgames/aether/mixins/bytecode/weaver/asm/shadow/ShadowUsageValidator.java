@@ -29,27 +29,86 @@ import static org.objectweb.asm.Opcodes.PUTFIELD;
 import static org.objectweb.asm.Opcodes.PUTSTATIC;
 
 /**
- * Pre-weave validator that enforces correct and safe @Shadow usage.
+ * Validates correct and safe usage of {@code @Shadow} members prior to weaving.
  *
+ * <p>This pre-weave pass inspects all resolved hooks (from injections and redirects)
+ * that will be applied to a given target class, loads the corresponding mixin classes,
+ * and checks the hook methods for usages of shadowed fields and methods. It enforces
+ * a set of rules that ensure we do not generate illegal bytecode or introduce
+ * brittle behavior when referenced members are absent or final.</p>
+ *
+ * <h2>Validation rules</h2>
  * <ul>
- *   <li>Static hooks must NOT use @Shadow (until access bridges are implemented).</li>
- *   <li>Writes to final target fields are forbidden unless explicitly allowed via @Mutable + runtime flag.</li>
- *   <li>Optional shadows that are unresolved MUST NOT be used.</li>
+ *   <li><strong>Final field writes:</strong> A write to a target field that is declared
+ *       {@code final} is reported as an error unless the shadowed field is explicitly
+ *       annotated as {@code @Mutable} and the runtime configuration allows final-field
+ *       weakening.</li>
+ *   <li><strong>Optional shadows:</strong> If a shadowed <em>method</em> is marked optional
+ *       but is not resolved on the target and is nonetheless <em>used</em> by a hook method,
+ *       an error is reported. (Optional implies “may not exist”, not “may be used if missing”.)</li>
+ *   <li><strong>Basic name hygiene:</strong> For both fields and methods, declared shadow
+ *       names must respect the configured {@code prefix}. This is validated when building
+ *       the per-mixin shadow registry.</li>
  * </ul>
- * <p>
- * This validator is designed to run once per target class before installing ASM adapters.
+ *
+ * <h2>Design</h2>
+ * <p>To avoid repeatedly decoding the same mixin classes and scanning annotations,
+ * this validator caches per-mixin {@link ClassNode}s and per-mixin {@link ShadowRegistry}
+ * instances. The validator is purely read-only with respect to bytecode and only reports
+ * problems via {@link ConfigProblems}.</p>
+ *
+ * <h2>Thread-safety</h2>
+ * <p>This class maintains only method-local caches and does not share state across
+ * calls. It is not thread-safe and should be invoked from a single weaving thread.</p>
  *
  * @author Erik Pförtner
+ * @see ShadowRegistry
+ * @see ShadowMeta
+ * @see AnnotationUtils
+ * @see ConfigProblems
  * @since 0.2.0
  */
 public final class ShadowUsageValidator {
-
+    /**
+     * Diagnostic context prefix used when reporting validation issues.
+     */
     private static final String CTX_PREFIX = "shadow-use/";
+    /**
+     * Descriptor of the {@code @Mutable} annotation, used to allow writes to final fields
+     * when permitted by runtime configuration.
+     */
     private static final String MUTABLE_DESC = "Lde/splatgames/aether/mixins/core/api/Mutable;";
 
+    /**
+     * Utility class; prevent instantiation.
+     */
     private ShadowUsageValidator() {
+        // utility class, prevent instantiation
     }
 
+    /**
+     * Validates {@code @Shadow} usage for all hooks destined for a single target class.
+     *
+     * <p>The validator performs the following steps:</p>
+     * <ol>
+     *   <li>Loads the target class to determine final/static attributes of members.</li>
+     *   <li>Collects all hooks (from injections and redirects) that will be applied.</li>
+     *   <li>For each distinct mixin owner referenced by the hooks:
+     *     <ol>
+     *       <li>Loads and caches the mixin {@link ClassNode}.</li>
+     *       <li>Builds (and caches) a {@link ShadowRegistry} mapping <em>mixin-name+desc</em> to {@link ShadowMeta}.</li>
+     *       <li>Finds the specific hook method in the mixin and scans its bytecode:</li>
+     *       <li>For each field access and method invocation whose owner is the mixin class,
+     *           validates usage against the registry (final-field writes, optional unresolved usage).</li>
+     *     </ol>
+     *   </li>
+     * </ol>
+     *
+     * @param work         the aggregated weaving work for the current target class; must not be {@code null}
+     * @param request      the weave request providing class bytes and runtime configuration; must not be {@code null}
+     * @param problems     sink for validation errors and warnings; must not be {@code null}
+     * @param internalName internal JVM name (slash-separated) of the target class; must not be {@code null}
+     */
     public static void validate(@NotNull final ClassWork work,
                                 @NotNull final WeaveRequest request,
                                 @NotNull final ConfigProblems problems,
@@ -157,6 +216,15 @@ public final class ShadowUsageValidator {
         }
     }
 
+    /**
+     * Loads a class into an ASM {@link ClassNode} using the {@link WeaveRequest}'s source.
+     *
+     * @param request      the weave request providing access to class bytes; must not be {@code null}
+     * @param internalName internal JVM name of the class to load; must not be {@code null}
+     * @param problems     diagnostics sink; must not be {@code null}
+     * @param ctx          diagnostic context string; must not be {@code null}
+     * @return the populated {@link ClassNode}, or {@code null} if the class could not be read
+     */
     @Nullable
     private static ClassNode loadClassNode(@NotNull final WeaveRequest request,
                                            @NotNull final String internalName,
@@ -177,6 +245,14 @@ public final class ShadowUsageValidator {
         }
     }
 
+    /**
+     * Finds a field on a {@link ClassNode} by name and descriptor.
+     *
+     * @param cn   class to search; must not be {@code null}
+     * @param name field name; must not be {@code null}
+     * @param desc JVM field descriptor; must not be {@code null}
+     * @return the matching {@link FieldNode}, or {@code null} if not found
+     */
     @Nullable
     private static FieldNode findField(@NotNull final ClassNode cn,
                                        @NotNull final String name,
@@ -192,11 +268,32 @@ public final class ShadowUsageValidator {
         return null;
     }
 
+    /**
+     * Renders a shadow member in a human-readable form for diagnostics.
+     *
+     * @param meta shadow metadata; must not be {@code null}
+     * @param desc JVM descriptor; must not be {@code null}
+     * @return a human-readable string such as {@code "static foo (I)V"} or {@code "bar Ljava/lang/String;"}
+     */
     @NotNull
     private static String printable(@NotNull final ShadowMeta meta, @NotNull final String desc) {
         return (meta.staticMember() ? "static " : "") + meta.strippedName() + " " + desc;
     }
 
+    /**
+     * Collects all {@code @Shadow}-annotated members from a mixin, resolving them against the target
+     * and writing {@link ShadowMeta} entries into the provided maps.
+     *
+     * <p>Keys in both maps are the <em>mixin</em> member name + descriptor. The {@code strippedName}
+     * in {@link ShadowMeta} represents the member name after removing any configured prefix.</p>
+     *
+     * @param mixin         the mixin class to scan; must not be {@code null}
+     * @param target        the target class to resolve against; must not be {@code null}
+     * @param shadowMethods destination map for shadowed methods, keyed by mixin-name+desc; must not be {@code null}
+     * @param shadowFields  destination map for shadowed fields, keyed by mixin-name+desc; must not be {@code null}
+     * @param problems      diagnostics sink; must not be {@code null}
+     * @param ctx           diagnostic context string; must not be {@code null}
+     */
     private static void collectShadows(@NotNull final ClassNode mixin,
                                        @NotNull final ClassNode target,
                                        @NotNull final Map<String, ShadowMeta> shadowMethods,
@@ -271,12 +368,21 @@ public final class ShadowUsageValidator {
         }
     }
 
+    /**
+     * Checks whether a given annotation list contains a specific descriptor.
+     *
+     * @param list the list of annotations to search, may be {@code null}
+     * @param desc the annotation descriptor to find, must not be {@code null}
+     * @return {@code true} if the list contains an annotation with the specified descriptor
+     */
     private static boolean hasAnnotation(@Nullable final List<AnnotationNode> list, @NotNull final String desc) {
         if (list == null) {
             return false;
         }
-        for (AnnotationNode a : list) if (desc.equals(a.desc)) {
-            return true;
+        for (AnnotationNode a : list) {
+            if (desc.equals(a.desc)) {
+                return true;
+            }
         }
         return false;
     }
