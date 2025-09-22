@@ -450,6 +450,4 @@ public final class MixinsAgent {
             System.err.println("[Aether Mixins] Failed to retransform some classes: " + e);
         }
     }
-
-
 }
