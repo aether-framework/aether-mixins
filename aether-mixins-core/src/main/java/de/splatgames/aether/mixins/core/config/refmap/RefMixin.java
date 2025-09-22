@@ -352,8 +352,12 @@ public final class RefMixin {
 
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof RefMixin that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof RefMixin that)) {
+            return false;
+        }
         return this.priority == that.priority &&
                 Objects.equals(this.className, that.className) &&
                 Objects.equals(this.targets, that.targets) &&

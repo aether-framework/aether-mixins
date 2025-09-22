@@ -253,7 +253,9 @@ public final class MixinsRuntime {
         }
 
         final Path tmp = extractClasspathResource("/mixins.yml");
-        if (tmp != null) return tmp;
+        if (tmp != null) {
+            return tmp;
+        }
 
         if (additionalDiscoverableConfigs != null) {
             for (final String p : additionalDiscoverableConfigs) {

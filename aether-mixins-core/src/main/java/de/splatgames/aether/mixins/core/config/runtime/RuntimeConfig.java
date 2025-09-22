@@ -248,8 +248,12 @@ public final class RuntimeConfig {
      */
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof RuntimeConfig that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof RuntimeConfig that)) {
+            return false;
+        }
         return this.safeMode == that.safeMode &&
                 this.dumpClassesOnError == that.dumpClassesOnError &&
                 Objects.equals(this.verifyFrames, that.verifyFrames);

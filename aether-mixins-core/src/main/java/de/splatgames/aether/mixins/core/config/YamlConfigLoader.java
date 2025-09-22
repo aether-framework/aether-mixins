@@ -68,7 +68,9 @@ public final class YamlConfigLoader implements ConfigLoader {
      */
     @Nullable
     private static String trimOrNull(@Nullable String s) {
-        if (s == null) return null;
+        if (s == null) {
+            return null;
+        }
         s = s.trim();
         return s.isEmpty() ? null : s;
     }
@@ -145,7 +147,9 @@ public final class YamlConfigLoader implements ConfigLoader {
      * @return a list of unique, trimmed strings; never {@code null}
      */
     private List<String> normalizeStrings(@Nullable final Object value) {
-        if (!(value instanceof List<?> raw)) return List.of();
+        if (!(value instanceof List<?> raw)) {
+            return List.of();
+        }
         List<String> out = new ArrayList<>(raw.size());
         for (Object o : raw) {
             String s = trimOrNull(o == null ? null : o.toString());
@@ -216,7 +220,9 @@ public final class YamlConfigLoader implements ConfigLoader {
      */
     @NotNull
     private List<String> normalizeFiles(@Nullable final Object value) {
-        if (!(value instanceof List<?> rawList)) return List.of();
+        if (!(value instanceof List<?> rawList)) {
+            return List.of();
+        }
         final List<String> out = new ArrayList<>(rawList.size());
         for (Object o : rawList) {
             final String s = trimOrNull(o == null ? null : o.toString());

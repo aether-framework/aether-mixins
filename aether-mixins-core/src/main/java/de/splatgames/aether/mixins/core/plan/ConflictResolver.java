@@ -45,11 +45,15 @@ public final class ConflictResolver {
      */
     private static boolean conflicts(@NotNull final PlannedMixin a, @NotNull final PlannedMixin b) {
         // class-name based conflict
-        if (a.getConflictsWith().contains(b.getClassName())) return true;
+        if (a.getConflictsWith().contains(b.getClassName())) {
+            return true;
+        }
 
         // group-based conflict
         for (final String g : b.getGroups()) {
-            if (a.getConflictsWith().contains(g)) return true;
+            if (a.getConflictsWith().contains(g)) {
+                return true;
+            }
         }
         return false;
     }

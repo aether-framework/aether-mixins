@@ -135,7 +135,7 @@ public final class MixinsAgent {
                 new AtomicReference<>(new RuntimeConfig(problems));
 
         final ClassLoader cl0 = Thread.currentThread().getContextClassLoader();
-        final ClassLoader cl  = (cl0 != null ? cl0 : ClassLoader.getSystemClassLoader());
+        final ClassLoader cl = (cl0 != null ? cl0 : ClassLoader.getSystemClassLoader());
 
         final ClassSource mixinSource = internalName -> {
             try (var in = cl.getResourceAsStream(internalName + ".class")) {
@@ -362,14 +362,22 @@ public final class MixinsAgent {
     @NotNull
     private static Path discoverConfigPath() {
         final String prop = System.getProperty("aether.mixins.config");
-        if (prop != null && !prop.isBlank()) return Path.of(prop.trim());
+        if (prop != null && !prop.isBlank()) {
+            return Path.of(prop.trim());
+        }
         final Path cwdYml = Path.of("mixins.yml");
-        if (Files.isRegularFile(cwdYml)) return cwdYml;
+        if (Files.isRegularFile(cwdYml)) {
+            return cwdYml;
+        }
         final Path cwdYaml = Path.of("mixins.yaml");
-        if (Files.isRegularFile(cwdYaml)) return cwdYaml;
+        if (Files.isRegularFile(cwdYaml)) {
+            return cwdYaml;
+        }
 
         final Path tmp = extractClasspathResource("/mixins.yml");
-        if (tmp != null) return tmp;
+        if (tmp != null) {
+            return tmp;
+        }
 
         System.out.println("[Aether Mixins] Looked for config at:");
         System.out.println(" - System property aether.mixins.config=" + prop);
@@ -391,11 +399,15 @@ public final class MixinsAgent {
     @NotNull
     private static Path resolveToPathOrTemp(@NotNull final String fileOrResource) {
         final Path p = Path.of(fileOrResource);
-        if (Files.exists(p)) return p;
+        if (Files.exists(p)) {
+            return p;
+        }
 
         final String res = fileOrResource.startsWith("/") ? fileOrResource : "/" + fileOrResource;
         final Path tmp = extractClasspathResource(res);
-        if (tmp != null) return tmp;
+        if (tmp != null) {
+            return tmp;
+        }
 
         throw new IllegalStateException("Refmap not found as file or resource: " + fileOrResource);
     }
@@ -410,7 +422,9 @@ public final class MixinsAgent {
     @Nullable
     private static Path extractClasspathResource(@NotNull final String resource) {
         try (InputStream in = MixinsAgent.class.getResourceAsStream(resource)) {
-            if (in == null) return null;
+            if (in == null) {
+                return null;
+            }
             final Path tmp = Files.createTempFile("aether-mixins-", "-res");
             Files.copy(in, tmp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             return tmp;
@@ -442,7 +456,9 @@ public final class MixinsAgent {
                 toRetransform.add(c);
             }
         }
-        if (toRetransform.isEmpty()) return;
+        if (toRetransform.isEmpty()) {
+            return;
+        }
 
         try {
             inst.retransformClasses(toRetransform.toArray(new Class<?>[0]));

@@ -159,8 +159,12 @@ public final class MixinsConfig {
      */
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof MixinsConfig that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof MixinsConfig that)) {
+            return false;
+        }
         return this.version == that.version &&
                 Objects.equals(this.mixins, that.mixins) &&
                 Objects.equals(this.runtime, that.runtime);

@@ -177,8 +177,12 @@ public final class PlannedMixin {
 
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof PlannedMixin that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof PlannedMixin that)) {
+            return false;
+        }
         return this.priority == that.priority &&
                 this.className.equals(that.className) &&
                 this.targets.equals(that.targets) &&

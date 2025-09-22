@@ -127,8 +127,12 @@ public final class SelectionOptions {
 
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof SelectionOptions that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof SelectionOptions that)) {
+            return false;
+        }
         return this.onlyGroups.equals(that.onlyGroups)
                 && this.disabledGroups.equals(that.disabledGroups)
                 && this.availableRequirements.equals(that.availableRequirements);

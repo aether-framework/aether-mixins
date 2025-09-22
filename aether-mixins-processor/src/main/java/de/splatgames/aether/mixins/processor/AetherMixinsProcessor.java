@@ -258,7 +258,9 @@ public final class AetherMixinsProcessor extends AbstractProcessor {
     @NotNull
     private String inferArtifactId() {
         final String opt = this.processingEnv.getOptions().get(OPT_ARTIFACT);
-        if (opt != null && !opt.isBlank()) return opt.trim();
+        if (opt != null && !opt.isBlank()) {
+            return opt.trim();
+        }
         return "app";
     }
 

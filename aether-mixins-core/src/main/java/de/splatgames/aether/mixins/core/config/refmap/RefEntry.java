@@ -43,11 +43,11 @@ import java.util.Objects;
  * <p><b>Note:</b> This model intentionally reuses {@link Inject.At} and {@link Redirect.InvokeKind}
  * from the public API to avoid enum duplication.</p>
  *
+ * @author Erik Pförtner
  * @see de.splatgames.aether.mixins.core.api.Mixin
  * @see de.splatgames.aether.mixins.core.api.Inject
  * @see de.splatgames.aether.mixins.core.api.Redirect
  * @since 0.1.0
- * @author Erik Pförtner
  */
 public final class RefEntry {
 
@@ -484,8 +484,12 @@ public final class RefEntry {
 
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof RefEntry that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof RefEntry that)) {
+            return false;
+        }
         return this.optional == that.optional &&
                 this.remap == that.remap &&
                 this.ordinal == that.ordinal &&

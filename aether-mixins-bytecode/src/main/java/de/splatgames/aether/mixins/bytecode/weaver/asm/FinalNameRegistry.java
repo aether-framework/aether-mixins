@@ -24,7 +24,9 @@ public final class FinalNameRegistry {
                                 @NotNull final String originalName,
                                 @NotNull final String desc,
                                 @Nullable final String finalName) {
-        if (finalName == null || finalName.equals(originalName)) return;
+        if (finalName == null || finalName.equals(originalName)) {
+            return;
+        }
 
         final String k = key(targetOwner, originalName, desc);
         // first-wins: keep deterministic behavior, log if a different value is attempted

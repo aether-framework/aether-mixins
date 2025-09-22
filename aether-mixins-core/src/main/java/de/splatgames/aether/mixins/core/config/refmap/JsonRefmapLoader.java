@@ -98,7 +98,9 @@ public final class JsonRefmapLoader implements RefmapLoader {
     private static int readInt(@NotNull final JsonObject obj, @NotNull final String key, final int def,
                                @NotNull final ConfigProblems problems, @NotNull final String path) {
         final JsonElement el = obj.get(key);
-        if (el == null || el.isJsonNull()) return def;
+        if (el == null || el.isJsonNull()) {
+            return def;
+        }
         if (!el.isJsonPrimitive() || !el.getAsJsonPrimitive().isNumber()) {
             problems.warn(path, "Expected integer; using default " + def);
             return def;
@@ -124,7 +126,9 @@ public final class JsonRefmapLoader implements RefmapLoader {
     private static boolean readBool(@NotNull final JsonObject obj, @NotNull final String key, final boolean def,
                                     @NotNull final ConfigProblems problems, @NotNull final String path) {
         final JsonElement el = obj.get(key);
-        if (el == null || el.isJsonNull()) return def;
+        if (el == null || el.isJsonNull()) {
+            return def;
+        }
         if (!el.isJsonPrimitive() || !el.getAsJsonPrimitive().isBoolean()) {
             problems.warn(path, "Expected boolean; using default " + def);
             return def;
@@ -228,7 +232,9 @@ public final class JsonRefmapLoader implements RefmapLoader {
     private static RefEntry.Type parseType(@Nullable final String s,
                                            @NotNull final ConfigProblems problems,
                                            @NotNull final String path) {
-        if (s == null) return null;
+        if (s == null) {
+            return null;
+        }
         return switch (s.trim().toLowerCase(Locale.ROOT)) {
             case "inject" -> RefEntry.Type.INJECT;
             case "redirect" -> RefEntry.Type.REDIRECT;
@@ -251,7 +257,9 @@ public final class JsonRefmapLoader implements RefmapLoader {
     private static Inject.At parseAt(@Nullable final String s,
                                      @NotNull final ConfigProblems problems,
                                      @NotNull final String path) {
-        if (s == null) return null;
+        if (s == null) {
+            return null;
+        }
         final String up = s.trim().toUpperCase(Locale.ROOT);
         try {
             return Inject.At.valueOf(up);
@@ -273,7 +281,9 @@ public final class JsonRefmapLoader implements RefmapLoader {
     private static Redirect.InvokeKind parseInvokeKind(@Nullable final String s,
                                                        @NotNull final ConfigProblems problems,
                                                        @NotNull final String path) {
-        if (s == null) return null;
+        if (s == null) {
+            return null;
+        }
         final String up = s.trim().toUpperCase(Locale.ROOT);
         try {
             return Redirect.InvokeKind.valueOf(up);

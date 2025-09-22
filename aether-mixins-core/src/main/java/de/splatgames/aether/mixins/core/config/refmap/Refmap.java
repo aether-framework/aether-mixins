@@ -161,8 +161,12 @@ public final class Refmap {
 
     @Override
     public boolean equals(@Nullable final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof Refmap that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof Refmap that)) {
+            return false;
+        }
         return this.schema == that.schema &&
                 Objects.equals(this.mixins, that.mixins);
     }

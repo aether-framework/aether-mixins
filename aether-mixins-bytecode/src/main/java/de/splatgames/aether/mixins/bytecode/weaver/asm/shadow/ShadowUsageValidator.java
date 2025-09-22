@@ -59,7 +59,9 @@ public final class ShadowUsageValidator {
 
         // Load target class node (needed for resolving target field/method properties like final/static)
         final ClassNode targetNode = loadClassNode(request, internalName, problems, "resolve/" + internalName);
-        if (targetNode == null) return;
+        if (targetNode == null) {
+            return;
+        }
 
         // Collect all hooks for this target
         final List<ResolvedHook> hooks = new ArrayList<>();
@@ -67,7 +69,9 @@ public final class ShadowUsageValidator {
         work.getRedirects().values().forEach(list -> list.forEach(s -> hooks.add(s.hook())));
 
         // Early out
-        if (hooks.isEmpty()) return;
+        if (hooks.isEmpty()) {
+            return;
+        }
 
         // Per mixin cache to avoid re-parsing the same mixin classes
         final Map<String, ClassNode> mixinCache = new HashMap<>();
@@ -177,9 +181,13 @@ public final class ShadowUsageValidator {
     private static FieldNode findField(@NotNull final ClassNode cn,
                                        @NotNull final String name,
                                        @NotNull final String desc) {
-        if (cn.fields == null) return null;
+        if (cn.fields == null) {
+            return null;
+        }
         for (FieldNode f : cn.fields) {
-            if (name.equals(f.name) && desc.equals(f.desc)) return f;
+            if (name.equals(f.name) && desc.equals(f.desc)) {
+                return f;
+            }
         }
         return null;
     }
@@ -264,8 +272,12 @@ public final class ShadowUsageValidator {
     }
 
     private static boolean hasAnnotation(@Nullable final List<AnnotationNode> list, @NotNull final String desc) {
-        if (list == null) return false;
-        for (AnnotationNode a : list) if (desc.equals(a.desc)) return true;
+        if (list == null) {
+            return false;
+        }
+        for (AnnotationNode a : list) if (desc.equals(a.desc)) {
+            return true;
+        }
         return false;
     }
 }

@@ -71,13 +71,17 @@ public final class WeavePlanner {
         // disabled → exclude
         if (!o.getDisabledGroups().isEmpty()) {
             for (String g : m.getGroups()) {
-                if (o.getDisabledGroups().contains(g)) return false;
+                if (o.getDisabledGroups().contains(g)) {
+                    return false;
+                }
             }
         }
         // onlyGroups set → must intersect
         if (!o.getOnlyGroups().isEmpty()) {
             for (String g : m.getGroups()) {
-                if (o.getOnlyGroups().contains(g)) return true;
+                if (o.getOnlyGroups().contains(g)) {
+                    return true;
+                }
             }
             return false;
         }
@@ -94,7 +98,9 @@ public final class WeavePlanner {
      * @return {@code true} if all requirements are available; {@code false} otherwise
      */
     private static boolean includeByRequires(@NotNull final RefMixin m, @NotNull final SelectionOptions o) {
-        if (m.getRequires().isEmpty()) return true;
+        if (m.getRequires().isEmpty()) {
+            return true;
+        }
         return o.getAvailableRequirements().containsAll(m.getRequires());
     }
 

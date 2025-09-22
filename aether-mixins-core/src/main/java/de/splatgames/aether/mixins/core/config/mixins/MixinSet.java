@@ -149,8 +149,12 @@ public final class MixinSet {
      */
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof MixinSet that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof MixinSet that)) {
+            return false;
+        }
         return Objects.equals(this.name, that.name) &&
                 Objects.equals(this.files, that.files)
                 && Objects.equals(this.classes, that.classes);

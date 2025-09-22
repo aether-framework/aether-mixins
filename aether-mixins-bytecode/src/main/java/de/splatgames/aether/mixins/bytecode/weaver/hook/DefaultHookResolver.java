@@ -93,82 +93,6 @@ public final class DefaultHookResolver implements HookResolver {
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * <p>This implementation uses Java reflection to load the mixin class and find the hook method.</p>
-     */
-    @NotNull
-    @Override
-    public Optional<ResolvedHook> resolve(
-            @NotNull final PlannedMixin mixin,
-            @NotNull final PlannedEntry entry,
-            @NotNull final ConfigProblems problems,
-            @NotNull final String path
-    ) {
-        final String className = mixin.getClassName();
-        final Class<?> mixinClass = loadClass(className, problems, path);
-        if (mixinClass == null) return Optional.empty();
-
-        final List<Method> candidates = findAnnotatedCandidates(mixinClass, entry.getKind());
-        if (candidates.isEmpty()) {
-            problems.error(path, "No @" + entry.getKind().name().toLowerCase(Locale.ROOT) +
-                    " hook found in " + className);
-            return Optional.empty();
-        }
-
-        final String wantedId = entry.getId(); // may be empty
-        final List<Method> matched = matchById(candidates, entry.getKind(), wantedId);
-
-        if (matched.isEmpty()) {
-            problems.error(path, "No hook with id '" + wantedId + "' in " + className);
-            return Optional.empty();
-        }
-        if (matched.size() > 1) {
-            problems.error(path, "Ambiguous hook id '" + wantedId + "' in " + className +
-                    " (matches: " + namesOf(matched) + ")");
-            return Optional.empty();
-        }
-
-        final Method hook = matched.get(0);
-        boolean isStatic = Modifier.isStatic(hook.getModifiers());
-
-        // make sure the hook is not abstract unless it's a @Shadow method
-        if (Modifier.isAbstract(hook.getModifiers()) && Arrays.stream(hook.getDeclaredAnnotations())
-                .noneMatch(a -> a.annotationType().equals(Shadow.class))) {
-            problems.error(path, "Invalid abstract hook method: " + sig(hook) +
-                    " (must not be abstract unless annotated @Shadow)");
-            return Optional.empty();
-        }
-
-        final String owner = internalName(mixinClass);
-        final String name = hook.getName();
-        final String desc = toDescriptor(hook);
-        final HookInvocation invoc = HookInvocation.isStatic(isStatic);
-        return Optional.of(new ResolvedHook(owner, name, desc, invoc));
-    }
-
-    /**
-     * Loads a class by binary name using the configured loader.
-     *
-     * @param name     binary class name, never {@code null}
-     * @param problems diagnostics collector, never {@code null}
-     * @param path     diagnostic path, never {@code null}
-     * @return the loaded class, or {@code null} if not found (error recorded)
-     */
-    @Nullable
-    private Class<?> loadClass(@NotNull final String name,
-                               @NotNull final ConfigProblems problems,
-                               @NotNull final String path) {
-        try {
-            return Class.forName(name, false, this.loader);
-        } catch (Throwable t) {
-            problems.error(path, "Failed to load mixin class '" + name + "': " + t.getClass().getSimpleName() +
-                    ": " + String.valueOf(t.getMessage()));
-            return null;
-        }
-    }
-
-    /**
      * Finds declared methods on the mixin class that have the required annotation
      * corresponding to the planned entry kind.
      *
@@ -269,15 +193,33 @@ public final class DefaultHookResolver implements HookResolver {
     @NotNull
     private static String typeDesc(@NotNull final Class<?> c) {
         if (c.isPrimitive()) {
-            if (c == void.class) return "V";
-            if (c == boolean.class) return "Z";
-            if (c == byte.class) return "B";
-            if (c == char.class) return "C";
-            if (c == short.class) return "S";
-            if (c == int.class) return "I";
-            if (c == float.class) return "F";
-            if (c == long.class) return "J";
-            if (c == double.class) return "D";
+            if (c == void.class) {
+                return "V";
+            }
+            if (c == boolean.class) {
+                return "Z";
+            }
+            if (c == byte.class) {
+                return "B";
+            }
+            if (c == char.class) {
+                return "C";
+            }
+            if (c == short.class) {
+                return "S";
+            }
+            if (c == int.class) {
+                return "I";
+            }
+            if (c == float.class) {
+                return "F";
+            }
+            if (c == long.class) {
+                return "J";
+            }
+            if (c == double.class) {
+                return "D";
+            }
         }
         if (c.isArray()) {
             return "[" + typeDesc(c.getComponentType());
@@ -306,5 +248,83 @@ public final class DefaultHookResolver implements HookResolver {
     @NotNull
     private static String namesOf(@NotNull final List<@NotNull Method> methods) {
         return methods.stream().map(DefaultHookResolver::sig).toList().toString();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation uses Java reflection to load the mixin class and find the hook method.</p>
+     */
+    @NotNull
+    @Override
+    public Optional<ResolvedHook> resolve(
+            @NotNull final PlannedMixin mixin,
+            @NotNull final PlannedEntry entry,
+            @NotNull final ConfigProblems problems,
+            @NotNull final String path
+    ) {
+        final String className = mixin.getClassName();
+        final Class<?> mixinClass = loadClass(className, problems, path);
+        if (mixinClass == null) {
+            return Optional.empty();
+        }
+
+        final List<Method> candidates = findAnnotatedCandidates(mixinClass, entry.getKind());
+        if (candidates.isEmpty()) {
+            problems.error(path, "No @" + entry.getKind().name().toLowerCase(Locale.ROOT) +
+                    " hook found in " + className);
+            return Optional.empty();
+        }
+
+        final String wantedId = entry.getId(); // may be empty
+        final List<Method> matched = matchById(candidates, entry.getKind(), wantedId);
+
+        if (matched.isEmpty()) {
+            problems.error(path, "No hook with id '" + wantedId + "' in " + className);
+            return Optional.empty();
+        }
+        if (matched.size() > 1) {
+            problems.error(path, "Ambiguous hook id '" + wantedId + "' in " + className +
+                    " (matches: " + namesOf(matched) + ")");
+            return Optional.empty();
+        }
+
+        final Method hook = matched.get(0);
+        boolean isStatic = Modifier.isStatic(hook.getModifiers());
+
+        // make sure the hook is not abstract unless it's a @Shadow method
+        if (Modifier.isAbstract(hook.getModifiers()) && Arrays.stream(hook.getDeclaredAnnotations())
+                .noneMatch(a -> a.annotationType().equals(Shadow.class))) {
+            problems.error(path, "Invalid abstract hook method: " + sig(hook) +
+                    " (must not be abstract unless annotated @Shadow)");
+            return Optional.empty();
+        }
+
+        final String owner = internalName(mixinClass);
+        final String name = hook.getName();
+        final String desc = toDescriptor(hook);
+        final HookInvocation invoc = HookInvocation.isStatic(isStatic);
+        return Optional.of(new ResolvedHook(owner, name, desc, invoc));
+    }
+
+    /**
+     * Loads a class by binary name using the configured loader.
+     *
+     * @param name     binary class name, never {@code null}
+     * @param problems diagnostics collector, never {@code null}
+     * @param path     diagnostic path, never {@code null}
+     * @return the loaded class, or {@code null} if not found (error recorded)
+     */
+    @Nullable
+    private Class<?> loadClass(@NotNull final String name,
+                               @NotNull final ConfigProblems problems,
+                               @NotNull final String path) {
+        try {
+            return Class.forName(name, false, this.loader);
+        } catch (Throwable t) {
+            problems.error(path, "Failed to load mixin class '" + name + "': " + t.getClass().getSimpleName() +
+                    ": " + String.valueOf(t.getMessage()));
+            return null;
+        }
     }
 }

@@ -63,8 +63,12 @@ public final class WeavePlan {
 
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof WeavePlan that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof WeavePlan that)) {
+            return false;
+        }
         return this.mixins.equals(that.mixins);
     }
 
