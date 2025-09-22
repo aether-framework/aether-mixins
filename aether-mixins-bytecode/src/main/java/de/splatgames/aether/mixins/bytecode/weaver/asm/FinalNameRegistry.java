@@ -10,6 +10,7 @@ public final class FinalNameRegistry {
     private static final ConcurrentHashMap<String, String> MAP = new ConcurrentHashMap<>();
 
     private FinalNameRegistry() {
+        // utility class, prevent instantiation
     }
 
     @NotNull
