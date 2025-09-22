@@ -54,10 +54,9 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
     public void visitEnd() {
         // Inject instance hook methods if needed.
         Stream.concat(
-                        this.work.getInjects().values().stream().flatMap(List::stream).map(InjectionSpec::hook),
-                        this.work.getRedirects().values().stream().flatMap(List::stream).map(RedirectSpec::hook)
-                ).filter(h -> h.invocation().isInstance())
-                .forEach(this::ensureMethodPresent);
+                this.work.getInjects().values().stream().flatMap(List::stream).map(InjectionSpec::hook),
+                this.work.getRedirects().values().stream().flatMap(List::stream).map(RedirectSpec::hook)
+        ).forEach(this::ensureMethodPresent);
 
         super.visitEnd();
     }
@@ -116,9 +115,7 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
                 src,
                 mixinNode.name,
                 this.targetOwner,
-                shadowMap,
-                this.problems,
-                "shadow-use/" + this.targetOwner + "/" + hook.name() + hook.desc()
+                shadowMap
         );
 
         // 6) Handle @Unique (visible or invisible)
@@ -143,7 +140,13 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
         final int access =
                 (src.access & ~(Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED)) |
                         Opcodes.ACC_PRIVATE |
-                        (src.access & Opcodes.ACC_SYNCHRONIZED);
+                        (src.access & (Opcodes.ACC_SYNCHRONIZED | Opcodes.ACC_VARARGS | Opcodes.ACC_BRIDGE | Opcodes.ACC_SYNTHETIC));
+
+        if ((src.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) {
+            this.problems.error(ctx, "Hook method must be concrete (no abstract/native): " +
+                    hook.owner() + "." + hook.name() + hook.desc());
+            return;
+        }
 
         // 9) Create target method and strip mixin-only annotations from the copy
         final MethodVisitor mv = super.visitMethod(

@@ -144,18 +144,18 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
     /**
      * Constructs a new adapter that injects a hook call at method entry.
      *
-     * @param api         ASM API level to use
-     * @param mv          downstream method visitor to delegate to; must not be {@code null}
+     * @param api           ASM API level to use
+     * @param mv            downstream method visitor to delegate to; must not be {@code null}
      * @param ownerInternal internal JVM class name of the target method (e.g., {@code com/example/Foo}); must not be {@code null}
-     * @param targetAccess access flags of the target method (e.g., {@code ACC_PUBLIC | ACC_STATIC})
-     * @param targetDesc  method descriptor of the target method (e.g., {@code (I)V}); must not be {@code null}
-     * @param hook        resolved hook to invoke; must not be {@code null} and must be {@code ()V}
-     * @param optional    whether to tolerate the absence of return opcodes without failing
-     * @param id          developer-defined identifier used in diagnostics; must not be {@code null}
-     * @param markChanged callback invoked when the injection is applied; must not be {@code null}
-     * @param problems    diagnostics sink for potential future reporting; must not be {@code null}
-     * @param cls         internal JVM class name for diagnostics (e.g., {@code com/example/Foo}); must not be {@code null}
-     * @param sig         method signature {@code name+desc} for diagnostics (e.g., {@code bar(I)V}); must not be {@code null}
+     * @param targetAccess  access flags of the target method (e.g., {@code ACC_PUBLIC | ACC_STATIC})
+     * @param targetDesc    method descriptor of the target method (e.g., {@code (I)V}); must not be {@code null}
+     * @param hook          resolved hook to invoke; must not be {@code null} and must be {@code ()V}
+     * @param optional      whether to tolerate the absence of return opcodes without failing
+     * @param id            developer-defined identifier used in diagnostics; must not be {@code null}
+     * @param markChanged   callback invoked when the injection is applied; must not be {@code null}
+     * @param problems      diagnostics sink for potential future reporting; must not be {@code null}
+     * @param cls           internal JVM class name for diagnostics (e.g., {@code com/example/Foo}); must not be {@code null}
+     * @param sig           method signature {@code name+desc} for diagnostics (e.g., {@code bar(I)V}); must not be {@code null}
      */
     public InjectTailAdapter(final int api,
                              @NotNull final MethodVisitor mv,
@@ -182,6 +182,18 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
     }
 
     /**
+     * Determines whether the given opcode is any return instruction.
+     *
+     * @param opcode the opcode to check
+     * @return {@code true} if {@code opcode} represents a return instruction ({@code RETURN}, {@code ARETURN},
+     * {@code IRETURN}, {@code LRETURN}, {@code FRETURN}, or {@code DRETURN}); otherwise {@code false}
+     */
+    private static boolean isReturn(final int opcode) {
+        return opcode == RETURN || opcode == ARETURN || opcode == IRETURN
+                || opcode == LRETURN || opcode == FRETURN || opcode == DRETURN;
+    }
+
+    /**
      * Configures the target owner and final name lookup function for merged instance hooks.
      * <p>
      * When injecting into instance methods, the target owner is used to lookup final method names
@@ -201,18 +213,6 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
         this.targetOwnerInternalName = targetOwner;
         this.finalNameLookup = lookup;
         return this;
-    }
-
-    /**
-     * Determines whether the given opcode is any return instruction.
-     *
-     * @param opcode the opcode to check
-     * @return {@code true} if {@code opcode} represents a return instruction ({@code RETURN}, {@code ARETURN},
-     * {@code IRETURN}, {@code LRETURN}, {@code FRETURN}, or {@code DRETURN}); otherwise {@code false}
-     */
-    private static boolean isReturn(final int opcode) {
-        return opcode == RETURN || opcode == ARETURN || opcode == IRETURN
-                || opcode == LRETURN || opcode == FRETURN || opcode == DRETURN;
     }
 
     /**
@@ -304,7 +304,17 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
 
             // Call hook (switch STATIC vs INSTANCE)
             if (this.hook.invocation().isStatic()) {
-                super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+                if (this.targetOwnerInternalName == null) {
+                    throw new IllegalStateException("Static inject (tail) requires target owner context");
+                }
+                final String owner = this.targetOwnerInternalName;
+                String callName = this.hook.name();
+                if (this.finalNameLookup != null) {
+                    final String k = owner + "#" + this.hook.name() + this.hook.desc();
+                    final String resolved = this.finalNameLookup.apply(k, null);
+                    if (resolved != null) callName = resolved;
+                }
+                super.visitMethodInsn(INVOKESTATIC, owner, callName, this.hook.desc(), false);
             } else {
                 if (this.targetOwnerInternalName == null) {
                     throw new IllegalStateException("Instance inject (tail) requires target owner context");

@@ -133,13 +133,13 @@ public final class RedirectAdapter extends MethodVisitor {
     private boolean applied = false;
     /**
      * Internal JVM name (slash-separated) of the target class for instance call context hooks.
-     * Set via {@link #withInstanceCallContext(String)} before visiting method instructions.
+     * Set via {@link #withInstanceCallContext(String, BiFunction)} before visiting method instructions.
      */
     private String targetOwnerInternalName;
 
     /**
      * Lookup function for final method names after merging (only when collisions caused a rename).
-     * Set via {@link #withFinalNameLookup(BiFunction)} before visiting method instructions.
+     * Can be null if no renames are expected (e.g., when using unique names).
      *
      * <p>
      * The function is called with two parameters:
@@ -236,7 +236,17 @@ public final class RedirectAdapter extends MethodVisitor {
             if (this.ordinal < 0 || this.ordinal == current) {
 
                 if (this.hook.invocation().isStatic()) {
-                    super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+                    // Always call the premerged copy on the TARGET owner
+                    final String resolvedOwner = (this.targetOwnerInternalName != null)
+                            ? this.targetOwnerInternalName
+                            : this.thisClass; // defensive fallback
+                    String callName = this.hook.name();
+                    if (this.finalNameLookup != null && this.targetOwnerInternalName != null) {
+                        final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
+                        final String resolved = this.finalNameLookup.apply(k, null);
+                        if (resolved != null) callName = resolved;
+                    }
+                    super.visitMethodInsn(INVOKESTATIC, resolvedOwner, callName, this.hook.desc(), false);
                 } else {
                     // We only support rewriting self-calls, because the merged hook lives in the target class.
                     if (this.targetOwnerInternalName == null) {

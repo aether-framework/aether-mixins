@@ -289,7 +289,17 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
 
         // Call hook (switch STATIC vs INSTANCE)
         if (this.hook.invocation().isStatic()) {
-            super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+            if (this.targetOwnerInternalName == null) {
+                throw new IllegalStateException("Static inject requires target owner context");
+            }
+            final String owner = this.targetOwnerInternalName;
+            String callName = this.hook.name();
+            if (this.finalNameLookup != null) {
+                final String k = owner + "#" + this.hook.name() + this.hook.desc();
+                final String resolved = this.finalNameLookup.apply(k, null);
+                if (resolved != null) callName = resolved;
+            }
+            super.visitMethodInsn(INVOKESTATIC, owner, callName, this.hook.desc(), false);
         } else {
             if (this.targetOwnerInternalName == null) {
                 throw new IllegalStateException("Instance inject requires target owner context");
@@ -397,7 +407,17 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
 
             // Call hook (switch STATIC vs INSTANCE)
             if (this.hook.invocation().isStatic()) {
-                super.visitMethodInsn(INVOKESTATIC, this.hook.owner(), this.hook.name(), this.hook.desc(), false);
+                if (this.targetOwnerInternalName == null) {
+                    throw new IllegalStateException("Static inject (ctor) requires target owner context");
+                }
+                final String resolvedOwner = this.targetOwnerInternalName;
+                String callName = this.hook.name();
+                if (this.finalNameLookup != null) {
+                    final String k = resolvedOwner + "#" + this.hook.name() + this.hook.desc();
+                    final String resolved = this.finalNameLookup.apply(k, null);
+                    if (resolved != null) callName = resolved;
+                }
+                super.visitMethodInsn(INVOKESTATIC, resolvedOwner, callName, this.hook.desc(), false);
             } else {
                 if (this.targetOwnerInternalName == null) {
                     throw new IllegalStateException("Instance inject (ctor) requires target owner context");

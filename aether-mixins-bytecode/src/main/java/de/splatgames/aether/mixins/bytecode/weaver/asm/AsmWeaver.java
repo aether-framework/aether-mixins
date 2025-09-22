@@ -4,6 +4,7 @@ import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.InjectHeadAdapter
 import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.InjectTailAdapter;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.PremergeInstanceHooksAdapter;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.RedirectAdapter;
+import de.splatgames.aether.mixins.bytecode.weaver.asm.shadow.ShadowUsageValidator;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.spec.InjectionSpec;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.spec.RedirectSpec;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.util.ChangeFlag;
@@ -23,7 +24,6 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.tree.ClassNode;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -110,6 +110,32 @@ public final class AsmWeaver implements Weaver {
     }
 
     /**
+     * Constructs a unique problem context path for a specific target class and planned
+     * mixin entry.
+     *
+     * @param target target class internal JVM name (slash-separated); never {@code null}
+     * @param mixin  the planned mixin; never {@code null}
+     * @param pe     the planned entry; never {@code null}
+     * @return a context path string for diagnostics; never {@code null}
+     */
+    @NotNull
+    private static String pathResolve(@NotNull final String target, @NotNull final PlannedMixin mixin, @NotNull final PlannedEntry pe) {
+        return "resolve/" + target + "/" + mixin.getClassName() + ":" + pe.getId();
+    }
+
+    /**
+     * Constructs a unique problem context path for a specific target class and method signature.
+     *
+     * @param internalName internal JVM class name (slash-separated); never {@code null}
+     * @param sig          method signature (name + descriptor); never {@code null}
+     * @return a context path string for diagnostics; never {@code null}
+     */
+    @NotNull
+    private static String pathWeave(@NotNull final String internalName, @NotNull final String sig) {
+        return "weave/" + internalName + "/" + sig;
+    }
+
+    /**
      * Executes weaving for the given request and returns a {@link WeaveResult} summary.
      *
      * <p>Behavior:</p>
@@ -128,7 +154,7 @@ public final class AsmWeaver implements Weaver {
     @NotNull
     @Override
     public WeaveResult weave(@NotNull final WeaveRequest request,
-                                      @NotNull final ConfigProblems problems) throws Exception {
+                             @NotNull final ConfigProblems problems) throws Exception {
         final long t0 = System.nanoTime();
         final WeavePlan plan = request.plan();
         final boolean safe = request.runtime().isSafeMode();
@@ -213,7 +239,7 @@ public final class AsmWeaver implements Weaver {
     @NotNull
     @SuppressWarnings("ConstantConditions")
     private Map<String, ClassWork> buildWork(@NotNull final WeavePlan plan,
-                                                      @NotNull final ConfigProblems problems) {
+                                             @NotNull final ConfigProblems problems) {
         final Map<String, ClassWork> map = new LinkedHashMap<>();
 
         for (final PlannedMixin mixin : plan.getMixins()) {
@@ -240,8 +266,8 @@ public final class AsmWeaver implements Weaver {
                                 .add(new InjectionSpec(pe.getAt(), rh, pe.isOptional(), pe.isRemap(), pe.getId(), mixin.getPriority()));
                         case REDIRECT ->
                                 cw.getRedirects().computeIfAbsent(this.sigOf(pe.getMethod()), k -> new ArrayList<>())
-                                .add(new RedirectSpec(pe.getCallOwner(), pe.getCallName(), pe.getCallDesc(),
-                                        pe.getInvokeKind(), pe.getOrdinal(), rh, pe.isOptional(), pe.isRemap(), pe.getId()));
+                                        .add(new RedirectSpec(pe.getCallOwner(), pe.getCallName(), pe.getCallDesc(),
+                                                pe.getInvokeKind(), pe.getOrdinal(), rh, pe.isOptional(), pe.isRemap(), pe.getId()));
                     }
                 }
             }
@@ -295,6 +321,8 @@ public final class AsmWeaver implements Weaver {
                 ? new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
                 : new ClassWriter(0);
 
+        ShadowUsageValidator.validate(work, request, problems, internalName);
+
         final ChangeFlag changed = new ChangeFlag();
 
         ClassVisitor cv = new ClassVisitor(ASM9, cw) {
@@ -327,7 +355,7 @@ public final class AsmWeaver implements Weaver {
                             r.hook(), r.optional(), r.id(),
                             changed::getAndSet,
                             problems, internalName, sig
-                    ).withInstanceCallContext(internalName, FinalNameRegistry::lookup);
+                    ).withInstanceCallContext(internalName, (ownerPlusNameDesc, _unused) -> FinalNameRegistry.lookupByCompositeKey(ownerPlusNameDesc));
                 }
 
                 // Split injects by kind and sort deterministically
@@ -354,7 +382,7 @@ public final class AsmWeaver implements Weaver {
                             t.hook(), t.optional(), t.id(),
                             changed::getAndSet,
                             problems, internalName, sig
-                    ).withInstanceCallContext(internalName, FinalNameRegistry::lookup);
+                    ).withInstanceCallContext(internalName, (ownerPlusNameDesc, _unused) -> FinalNameRegistry.lookupByCompositeKey(ownerPlusNameDesc));
                 }
                 for (final InjectionSpec h : headSorted) {
                     mv = new InjectHeadAdapter(
@@ -363,48 +391,21 @@ public final class AsmWeaver implements Weaver {
                             h.hook(), h.optional(), h.id(),
                             changed::getAndSet,
                             problems, internalName, sig
-                    ).withInstanceCallContext(internalName, FinalNameRegistry::lookup);
+                    ).withInstanceCallContext(internalName, (ownerPlusNameDesc, _unused) -> FinalNameRegistry.lookupByCompositeKey(ownerPlusNameDesc));
                 }
                 return mv;
             }
         };
 
-        final boolean needsInstanceMerge =
-                work.getInjects().values().stream().flatMap(List::stream).anyMatch(s -> s.hook().invocation().isInstance()) ||
-                        work.getRedirects().values().stream().flatMap(List::stream).anyMatch(s -> s.hook().invocation().isInstance());
+        final boolean needsPremerge =
+                !work.getInjects().isEmpty() || !work.getRedirects().isEmpty();
 
-        if (needsInstanceMerge) {
+        if (needsPremerge) {
             cv = new PremergeInstanceHooksAdapter(ASM9, cv, internalName, work, request, problems);
         }
 
         cr.accept(cv, acceptFlags);
         return changed.isSet() ? cw.toByteArray() : null;
-    }
-
-    /**
-     * Constructs a unique problem context path for a specific target class and planned
-     * mixin entry.
-     *
-     * @param target target class internal JVM name (slash-separated); never {@code null}
-     * @param mixin  the planned mixin; never {@code null}
-     * @param pe     the planned entry; never {@code null}
-     * @return a context path string for diagnostics; never {@code null}
-     */
-    @NotNull
-    private static String pathResolve(@NotNull final String target, @NotNull final PlannedMixin mixin, @NotNull final PlannedEntry pe) {
-        return "resolve/" + target + "/" + mixin.getClassName() + ":" + pe.getId();
-    }
-
-    /**
-     * Constructs a unique problem context path for a specific target class and method signature.
-     *
-     * @param internalName internal JVM class name (slash-separated); never {@code null}
-     * @param sig          method signature (name + descriptor); never {@code null}
-     * @return a context path string for diagnostics; never {@code null}
-     */
-    @NotNull
-    private static String pathWeave(@NotNull final String internalName, @NotNull final String sig) {
-        return "weave/" + internalName + "/" + sig;
     }
 
     /**
