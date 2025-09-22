@@ -127,6 +127,11 @@ dependencies {
     - `@ModifyArg` / `@ModifyVar`
     - Dev hot-reload quality-of-life features
     - Build tooling integration (Gradle/Maven tasks) and mapping adapters
+    - Marking refmaps as deprecated, migration guides
+
+- **v0.4.0**
+    - Marking refmaps as for removal
+    - Performance optimizations and memory usage improvements
 
 - **v1.0.0**
     - Stable annotation surface & full docs with production examples
