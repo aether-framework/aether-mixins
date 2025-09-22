@@ -24,6 +24,10 @@ public final class JvmRunner {
     }
 
     public static Result runWithAgent(@NotNull final String mainClass, final List<String> args, final Map<String,String> sysProps) throws Exception {
+        return runWithAgent(mainClass, args, sysProps, List.of());
+    }
+
+    public static Result runWithAgent(@NotNull final String mainClass, final List<String> args, final Map<String,String> sysProps, final List<String> customProps) throws Exception {
         String java = Paths.get(System.getProperty("java.home"), "bin",
                 System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java").toString();
         String cp = System.getProperty("java.class.path");
@@ -31,8 +35,9 @@ public final class JvmRunner {
         if (agent == null) agent = System.getenv("agent.jar");
         if (agent == null || agent.isBlank()) throw new IllegalStateException("agent.jar not set");
 
-        java.util.List<String> cmd = new java.util.ArrayList<>();
+        List<String> cmd = new ArrayList<>();
         cmd.add(java);
+        cmd.addAll(customProps);
         cmd.add("-javaagent:" + agent);
         if (sysProps != null) {
             for (var e : sysProps.entrySet()) cmd.add("-D" + e.getKey() + "=" + e.getValue());

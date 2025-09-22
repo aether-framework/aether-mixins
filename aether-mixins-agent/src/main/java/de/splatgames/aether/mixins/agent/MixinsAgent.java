@@ -1,8 +1,9 @@
 package de.splatgames.aether.mixins.agent;
 
+import de.splatgames.aether.mixins.bytecode.weaver.asm.AsmHookResolver;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.AsmWeaver;
+import de.splatgames.aether.mixins.bytecode.weaver.asm.loader.utils.AsmClassLoaderUtils;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.util.MixinMeta;
-import de.splatgames.aether.mixins.bytecode.weaver.hook.DefaultHookResolver;
 import de.splatgames.aether.mixins.core.api.Inject;
 import de.splatgames.aether.mixins.core.api.Redirect;
 import de.splatgames.aether.mixins.core.config.ConfigLoader;
@@ -20,14 +21,10 @@ import de.splatgames.aether.mixins.core.plan.PlannedMixin;
 import de.splatgames.aether.mixins.core.plan.SelectionOptions;
 import de.splatgames.aether.mixins.core.plan.WeavePlan;
 import de.splatgames.aether.mixins.core.plan.WeavePlanner;
+import de.splatgames.aether.mixins.core.weaver.spi.ClassSource;
 import de.splatgames.aether.mixins.core.weaver.spi.Weaver;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.Type;
-import org.objectweb.asm.tree.AnnotationNode;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.MethodNode;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,8 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
-
-import static org.objectweb.asm.Opcodes.ASM9;
 
 /**
  * Java agent entrypoint for <em>Aether Mixins</em>.
@@ -139,8 +134,17 @@ public final class MixinsAgent {
         final AtomicReference<RuntimeConfig> runtimeRef =
                 new AtomicReference<>(new RuntimeConfig(problems));
 
+        final ClassLoader cl0 = Thread.currentThread().getContextClassLoader();
+        final ClassLoader cl  = (cl0 != null ? cl0 : ClassLoader.getSystemClassLoader());
+
+        final ClassSource mixinSource = internalName -> {
+            try (var in = cl.getResourceAsStream(internalName + ".class")) {
+                return (in == null) ? null : in.readAllBytes();
+            }
+        };
+
         // Wire weaver & transformer (retransform enabled)
-        final Weaver weaver = new AsmWeaver(new DefaultHookResolver(ClassLoader.getSystemClassLoader()));
+        final Weaver weaver = new AsmWeaver(new AsmHookResolver(mixinSource));
         final ClassFileTransformer transformer = new AgentTransformer(perClassPlans, weaver, runtimeRef::get);
         inst.addTransformer(transformer, /*canRetransform*/ true);
 
@@ -154,8 +158,6 @@ public final class MixinsAgent {
         final RefmapLoader refmapLoader = new JsonRefmapLoader();
         final List<Refmap> refmaps = new ArrayList<>();
         final List<RefMixin> extraMixins = new ArrayList<>();
-
-        final ClassLoader cl = ClassLoader.getSystemClassLoader();
 
         for (int i = 0; i < cfg.getMixins().size(); i++) {
             final MixinSet set = cfg.getMixins().get(i);
@@ -181,12 +183,12 @@ public final class MixinsAgent {
 
             // Annotation-driven mixin classes
             for (final String cn : classes) {
-                final RefMixin refScannedMixin = scanRefMixinFromBytes(cn, cl, problems, setPath);
+                final RefMixin refScannedMixin = AsmClassLoaderUtils.scanRefMixinFromBytes(cn, cl, problems, setPath);
                 if (refScannedMixin == null) {
                     continue;
                 }
 
-                final MixinMeta mixinMeta = readMixinMetaFromBytes(cn, cl);
+                final MixinMeta mixinMeta = AsmClassLoaderUtils.readMixinMetaFromBytes(cn, cl);
                 if (mixinMeta == null || !mixinMeta.hasMixin()) {
                     problems.warn(setPath + ".classes", "Class '" + cn + "' lacks @Mixin — skipped.");
                     continue;
@@ -449,320 +451,5 @@ public final class MixinsAgent {
         }
     }
 
-    /**
-     * Reads {@link de.splatgames.aether.mixins.core.api.Mixin @Mixin} annotation data from the class bytes of the given class.
-     *
-     * @param mixinBinaryName binary name of the mixin class, never {@code null}
-     * @param cl              classloader to load the class bytes from, never {@code null}
-     * @return parsed mixin metadata or {@code null} if the class cannot be read
-     * @throws NullPointerException if {@code mixinBinaryName} or {@code cl} is {@code null}
-     * @since 0.2.0
-     */
-    @Nullable
-    private static MixinMeta readMixinMetaFromBytes(@NotNull final String mixinBinaryName, @NotNull final ClassLoader cl) {
-        final String res = mixinBinaryName.replace('.', '/') + ".class";
-        try (var in = cl.getResourceAsStream(res)) {
-            if (in == null) return null;
-            final ClassReader cr = new ClassReader(in);
-            final ClassNode node = new ClassNode(ASM9);
-            cr.accept(node, ClassReader.SKIP_CODE | ClassReader.SKIP_FRAMES);
 
-            if (node.visibleAnnotations == null) return new MixinMeta(false);
-
-            AnnotationNode mixin = null;
-            for (var an : node.visibleAnnotations) {
-                if ("Lde/splatgames/aether/mixins/core/api/Mixin;".equals(an.desc)) {
-                    mixin = an;
-                    break;
-                }
-            }
-            if (mixin == null) return new MixinMeta(false);
-
-            final MixinMeta meta = new MixinMeta(true);
-
-            // parse elements
-            if (mixin.values != null) {
-                for (int i = 0; i < mixin.values.size(); i += 2) {
-                    final String k = (String) mixin.values.get(i);
-                    final Object v = mixin.values.get(i + 1);
-
-                    if ("targets".equals(k) && v instanceof List<?> lst) {
-                        for (Object o : lst) if (o instanceof String s) meta.getTargets().add(s);
-                    } else if ("value".equals(k) && v instanceof List<?> lst) {
-                        for (Object o : lst) if (o instanceof Type t) meta.getValues().add(t.getClassName());
-                    } else if ("priority".equals(k) && v instanceof Integer p) {
-                        meta.setPriority(p);
-                    }
-                }
-            }
-            return meta;
-        } catch (final Exception e) {
-            return null;
-        }
-    }
-
-    // Reads @Mixin on the class and @Inject/@Redirect on its methods from raw bytes.
-    // Does NOT define/load the mixin class, so no class_value is resolved.
-
-    /**
-     * Scans a mixin class from its bytecode to extract {@link RefMixin} data.
-     *
-     * <p>This method does not load or define the mixin class, so any {@code class_value}
-     * elements in the annotations are not resolved.</p>
-     *
-     * @param mixinBinaryName binary name of the mixin class, never {@code null}
-     * @param cl              classloader to load the class bytes from, never {@code null}
-     * @param problems        config problems collector, never {@code null}
-     * @param setPath         path to the declaring mixin set for diagnostics, never {@code null}
-     * @return a populated {@link RefMixin} or {@code null} if the class cannot be read or is invalid
-     * @throws NullPointerException if any argument is {@code null}
-     * @since 0.2.0
-     */
-    private static @Nullable RefMixin scanRefMixinFromBytes(
-            @NotNull String mixinBinaryName,
-            @NotNull ClassLoader cl,
-            @NotNull ConfigProblems problems,
-            @NotNull String setPath
-    ) {
-        final String res = mixinBinaryName.replace('.', '/') + ".class";
-        final ClassNode node = new ClassNode(ASM9);
-        try (var in = cl.getResourceAsStream(res)) {
-            if (in == null) {
-                problems.warn(setPath + ".classes", "Mixin class bytes not found: " + mixinBinaryName);
-                return null;
-            }
-            new ClassReader(in).accept(node, ClassReader.SKIP_FRAMES);
-        } catch (Exception e) {
-            problems.error(setPath + ".classes", "Failed reading class bytes for '" + mixinBinaryName + "': " + e);
-            return null;
-        }
-
-        final String MIXIN_DESC = "Lde/splatgames/aether/mixins/core/api/Mixin;";
-        final String INJECT_DESC = "Lde/splatgames/aether/mixins/core/api/Inject;";
-        final String REDIRECT_DESC = "Lde/splatgames/aether/mixins/core/api/Redirect;";
-
-        // find @Mixin on the class
-        AnnotationNode mixinAnn = null;
-        if (node.visibleAnnotations != null) {
-            for (var an : node.visibleAnnotations) {
-                if (MIXIN_DESC.equals(an.desc)) {
-                    mixinAnn = an;
-                    break;
-                }
-            }
-        }
-        if (mixinAnn == null) {
-            problems.warn(setPath + ".classes", "Class '" + mixinBinaryName + "' lacks @Mixin — skipped.");
-            return null;
-        }
-
-        // extract targets(): String[] and value(): Type[] without loading any target classes
-        final List<String> targets = new ArrayList<>();
-        extractStringArray(mixinAnn, "targets", targets);
-        extractTypeClassNames(mixinAnn, "value", targets);
-        // dedupe/clean and reject Object
-        final var uniq = new LinkedHashSet<>(targets);
-        uniq.removeIf(s -> s == null || s.isBlank() || "java.lang.Object".equals(s));
-        if (uniq.isEmpty()) {
-            problems.error(setPath + ".classes", "Mixin class '" + mixinBinaryName + "' has no targets; skipping.");
-            return null;
-        }
-
-        // collect method entries from annotations (still no class loading)
-        final var entries = new ArrayList<RefEntry>();
-        for (var m : node.methods) {
-            if (m.visibleAnnotations == null) {
-                continue;
-            }
-            for (var an : m.visibleAnnotations) {
-                if (INJECT_DESC.equals(an.desc)) {
-                    final var e = buildInjectEntryFromAnn(an, m);
-                    if (e != null) {
-                        entries.add(e);
-                    }
-                } else if (REDIRECT_DESC.equals(an.desc)) {
-                    final var e = buildRedirectEntryFromAnn(an, m);
-                    if (e != null) {
-                        entries.add(e);
-                    }
-                }
-            }
-        }
-        if (entries.isEmpty()) {
-            problems.warn(setPath + ".classes", "Mixin class '" + mixinBinaryName + "' declares no @Redirect/@Inject; skipped.");
-            return null;
-        }
-
-        final var rm = new RefMixin();
-        rm.setClassName(node.name.replace('/', '.'));
-        rm.setTargets(new ArrayList<>(uniq));
-        rm.setEntries(entries);
-        rm.setPriority(readInt(mixinAnn, "priority", 1000));
-        rm.setGroups(List.of());
-        rm.setRequires(List.of());
-        rm.setConflictsWith(List.of());
-        rm.validate(problems, setPath + ".classes('" + mixinBinaryName + "')");
-        return rm;
-    }
-
-    /**
-     * Retrieves a named element value from an annotation node.
-     *
-     * @param an  annotation node, never {@code null}
-     * @param key element name, never {@code null}
-     * @return the element value or {@code null} if not found
-     * @since 0.2.0
-     */
-    @Nullable
-    private static Object annVal(@NotNull final AnnotationNode an, @NotNull final String key) {
-        if (an.values == null) {
-            return null;
-        }
-        for (int i = 0; i < an.values.size(); i += 2) {
-            if (key.equals(an.values.get(i))) {
-                return an.values.get(i + 1);
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Extracts a {@code String[]} annotation element value into a list.
-     *
-     * @param an  annotation node, never {@code null}
-     * @param key element name, never {@code null}
-     * @param out output list to add to, never {@code null}
-     * @since 0.2.0
-     */
-    private static void extractStringArray(@NotNull final AnnotationNode an,
-                                           @NotNull final String key,
-                                           @NotNull final List<String> out) {
-        final Object v = annVal(an, key);
-        if (v instanceof List<?> lst) {
-            for (Object o : lst)
-                if (o instanceof String s) {
-                    out.add(s);
-                }
-        }
-    }
-
-    /**
-     * Extracts a {@code Class<?>[]} annotation element value into a list of class names.
-     *
-     * @param an  annotation node, never {@code null}
-     * @param key element name, never {@code null}
-     * @param out output list to add to, never {@code null}
-     * @since 0.2.0
-     */
-    private static void extractTypeClassNames(@NotNull final AnnotationNode an,
-                                              @NotNull final String key,
-                                              @NotNull final List<String> out) {
-        final Object v = annVal(an, key);
-        if (v instanceof List<?> lst) {
-            for (Object o : lst)
-                if (o instanceof Type t) {
-                    out.add(t.getClassName());
-                }
-        }
-    }
-
-    /**
-     * Reads an integer annotation element value with a default.
-     *
-     * @param an  annotation node, never {@code null}
-     * @param key element name, never {@code null}
-     * @param def default value if not found or not an integer
-     * @return the integer value or {@code def}
-     * @since 0.2.0
-     */
-    private static int readInt(@NotNull final AnnotationNode an, @NotNull final String key, final int def) {
-        final Object v = annVal(an, key);
-        return (v instanceof Integer i) ? i : def;
-    }
-
-    /**
-     * Builds a {@link RefEntry} of type {@link RefEntry.Type#INJECT} from an {@link Inject} annotation node.
-     *
-     * @param inj annotation node, never {@code null}
-     * @param m   method node where the annotation is present, never {@code null}
-     * @return a populated refmap entry or {@code null} if the annotation is invalid
-     * @since 0.2.0
-     */
-    private static RefEntry buildInjectEntryFromAnn(
-            AnnotationNode inj, MethodNode m) {
-        final Object method = annVal(inj, "method");
-        if (!(method instanceof String ms) || ms.isBlank()) {
-            return null;
-        }
-        final var e = new RefEntry();
-        e.setType(RefEntry.Type.INJECT);
-        e.setMethod(ms);
-        final Object id = annVal(inj, "id");
-        e.setId((id instanceof String s && !s.isBlank()) ? s : m.name);
-        e.setOptional(Boolean.TRUE.equals(annVal(inj, "optional")));
-        e.setRemap(Boolean.TRUE.equals(annVal(inj, "remap")));
-        final Object at = annVal(inj, "at"); // enum as String[]{desc,name}
-        if (at instanceof String[] pair && pair.length == 2) {
-            try {
-                e.setAt(Inject.At.valueOf(pair[1]));
-            } catch (IllegalArgumentException ignored) {
-                return null;
-            }
-        } else {
-            e.setAt(Inject.At.HEAD);
-        }
-        return e;
-    }
-
-    /**
-     * Builds a {@link RefEntry} of type {@link RefEntry.Type#REDIRECT} from a {@link Redirect} annotation node.
-     *
-     * @param red annotation node, never {@code null}
-     * @param m   method node where the annotation is present, never {@code null}
-     * @return a populated refmap entry or {@code null} if the annotation is invalid
-     * @since 0.2.0
-     */
-    @Nullable
-    private static RefEntry buildRedirectEntryFromAnn(
-            @NotNull final AnnotationNode red,
-            @NotNull final MethodNode m) {
-        final Object method = annVal(red, "method");
-        if (!(method instanceof String ms) || ms.isBlank()) {
-            return null;
-        }
-        final Object co = annVal(red, "callOwner");
-        final Object cn = annVal(red, "callName");
-        final Object cd = annVal(red, "callDesc");
-        if (!(co instanceof String) || !(cn instanceof String) || !(cd instanceof String)) {
-            return null;
-        }
-
-        final var e = new RefEntry();
-        e.setType(RefEntry.Type.REDIRECT);
-        e.setMethod(ms);
-        final Object id = annVal(red, "id");
-        e.setId((id instanceof String s && !s.isBlank()) ? s : m.name);
-        e.setOptional(Boolean.TRUE.equals(annVal(red, "optional")));
-        e.setRemap(Boolean.TRUE.equals(annVal(red, "remap")));
-        e.setCallOwner((String) co);
-        e.setCallName((String) cn);
-        e.setCallDesc((String) cd);
-
-        final Object kind = annVal(red, "kind"); // enum as String[]{desc,name}
-        if (kind instanceof String[] pair && pair.length == 2) {
-            try {
-                e.setKind(Redirect.InvokeKind.valueOf(pair[1]));
-            } catch (IllegalArgumentException ignored) {
-                return null;
-            }
-        } else {
-            e.setKind(Redirect.InvokeKind.AUTO);
-        }
-
-        final Object ord = annVal(red, "ordinal");
-        if (ord instanceof Integer i) {
-            e.setOrdinal(i);
-        }
-        return e;
-    }
 }

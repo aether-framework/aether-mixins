@@ -19,13 +19,13 @@ import java.util.Optional;
 
 /**
  * ASM-based {@link HookResolver} that loads a mixin class, scans its bytecode
- * for {@code @Inject}/{@code @Redirect} annotated static methods, and resolves
+ * for {@code @Inject}/{@code @Redirect} annotated methods, and resolves
  * exactly one matching hook for a given {@link PlannedEntry}.
  *
  * <p>Resolution workflow:</p>
  * <ol>
  *   <li>Load class bytes via {@link ClassSource}.</li>
- *   <li>Scan for static methods carrying the required annotation (via {@link HookScanner}).</li>
+ *   <li>Scan for methods carrying the required annotation (via {@link HookScanner}).</li>
  *   <li>Filter by the planned {@code id} selection policy.</li>
  *   <li>Perform minimal kind-specific validation where applicable.</li>
  * </ol>
@@ -151,7 +151,7 @@ public final class AsmHookResolver implements HookResolver {
         }
         final List<CandidateHook> out = new ArrayList<>();
         for (final CandidateHook mi : candidates) {
-            if (wantedId.equals(mi.getAnnotationId())) {
+            if (wantedId.equals(effectiveId(mi))) {
                 out.add(mi);
             }
         }
@@ -159,6 +159,20 @@ public final class AsmHookResolver implements HookResolver {
             problems.warn(path, "No candidate with matching id='" + wantedId + "'; found " + candidates.size() + " candidates");
         }
         return out;
+    }
+
+    /**
+     * Determines the effective id of a candidate hook: either the annotation id if non-blank,
+     * or the method name otherwise.
+     *
+     * @param mi the candidate hook to query
+     * @return the effective id (never {@code null} or blank)
+     * @since 0.2.0
+     */
+    @NotNull
+    private static String effectiveId(@NotNull final CandidateHook mi) {
+        String id = mi.getAnnotationId();
+        return (id == null || id.isBlank()) ? mi.getName() : id;
     }
 
     /**
