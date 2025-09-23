@@ -5,12 +5,14 @@ import de.splatgames.aether.mixins.core.config.mixins.MixinsConfig;
 import de.splatgames.aether.mixins.core.config.problems.ConfigProblems;
 import de.splatgames.aether.mixins.core.config.runtime.RuntimeConfig;
 import de.splatgames.aether.mixins.core.configuration.Configuration;
+import de.splatgames.aether.mixins.core.configuration.ConfigurationSection;
 import de.splatgames.aether.mixins.core.configuration.file.YamlConfiguration;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -133,6 +135,20 @@ public final class YamlConfigLoader implements ConfigLoader {
         rt.setVerifyFramesString(root.getString(YamlConfigurationConstants.K_RUNTIME_VERIFY, "strict"), YamlConfigurationConstants.K_RUNTIME_VERIFY);
         rt.setDumpClassesOnError(root.getBoolean(YamlConfigurationConstants.K_RUNTIME_DUMP, false));
         rt.setAllowFinalFieldWeakening(root.getBoolean(YamlConfigurationConstants.K_RUNTIME_ALLOW_FINAL_FIELD_WEAKENING, false));
+
+        Map<String, Object> leftOvers = new HashMap<>();
+        ConfigurationSection runtimeSection = root.getConfigurationSection(YamlConfigurationConstants.K_RUNTIME);
+        if (runtimeSection != null) {
+            for (String key : runtimeSection.getKeys(false)) {
+                if (!YamlConfigurationConstants.K_RUNTIME_SAFE.equals(key)
+                        && !YamlConfigurationConstants.K_RUNTIME_VERIFY.equals(key)
+                        && !YamlConfigurationConstants.K_RUNTIME_DUMP.equals(key)
+                        && !YamlConfigurationConstants.K_RUNTIME_ALLOW_FINAL_FIELD_WEAKENING.equals(key)) {
+                    leftOvers.put(key, runtimeSection.get(key));
+                }
+            }
+        }
+        rt.setAdditionalProperties(leftOvers);
 
         return rt;
     }

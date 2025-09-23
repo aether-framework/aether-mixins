@@ -61,7 +61,6 @@ import java.util.Map;
  * @since 0.2.0
  */
 public final class ShadowMap {
-
     /**
      * Field bindings indexed by {@code strippedName + desc}.
      *
@@ -157,13 +156,16 @@ public final class ShadowMap {
                     }
                 }
 
+                boolean mutable = AnnotationUtils.hasMutableAnnotation(field.visibleAnnotations, field.invisibleAnnotations);
+
                 map.fields.put(stripped + field.desc, new ShadowBinding(
                         ShadowBinding.Kind.FIELD,
                         (field.access & Opcodes.ACC_STATIC) != 0,
                         stripped,
                         field.desc,
                         shadow.optional(),
-                        resolved
+                        resolved,
+                        mutable
                 ));
             }
         }
@@ -196,13 +198,16 @@ public final class ShadowMap {
                     problems.error(contextPath, "@Shadow method not found in target: " + stripped + method.desc);
                 }
 
+                boolean mutable = AnnotationUtils.hasMutableAnnotation(method.visibleAnnotations, method.invisibleAnnotations);
+
                 map.methods.put(stripped + method.desc, new ShadowBinding(
                         ShadowBinding.Kind.METHOD,
                         (method.access & Opcodes.ACC_STATIC) != 0,
                         stripped,
                         method.desc,
                         shadow.optional(),
-                        resolved
+                        resolved,
+                        mutable
                 ));
             }
         }

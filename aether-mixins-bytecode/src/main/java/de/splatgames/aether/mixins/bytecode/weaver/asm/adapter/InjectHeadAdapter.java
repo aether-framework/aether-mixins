@@ -259,15 +259,9 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
             return;
         }
 
-        // Marshal operands
-        if (HookShape.requiresThis(kind)) {
-            HookShape.emitThisIfNeeded(this, kind);
-        }
-
-        // Ensure receiver for instance hooks when the hook descriptor does NOT take OWNER as a parameter.
-        if (this.hook.invocation().isInstance() && !HookShape.requiresThis(kind)) {
-            // Receiver must be pushed before args for an instance invoke
-            super.visitVarInsn(Opcodes.ALOAD, 0);
+        // Always call merged instance hook as a normal instance method: receiver + args
+        if (this.hook.invocation().isInstance()) {
+            super.visitVarInsn(Opcodes.ALOAD, 0); // 'this'
         }
 
         int local = instance ? 1 : 0;

@@ -40,6 +40,11 @@ import java.util.Map;
  * @see ShadowAttributes
  */
 public final class AnnotationUtils {
+    /**
+     * Descriptor of the Aether Mixins @Mutable annotation.
+     * Used to detect whether a shadowed member is mutable (field or non-final method).
+     */
+    private static final String MUTABLE_DESC = "Lde/splatgames/aether/mixins/core/api/Mutable;";
 
     /**
      * Descriptor literal for the Aether Mixins {@code @Shadow} annotation.
@@ -141,5 +146,23 @@ public final class AnnotationUtils {
             map.put(key, val);
         }
         return map;
+    }
+
+    /**
+     * Determines whether a member (field or method) is annotated with {@code @Mutable}.
+     *
+     * <p>This is used to decide whether a shadowed member is mutable (a field or a
+     * non-{@code final} method).</p>
+     *
+     * @param vis   the list of visible annotations on the member, or {@code null}
+     * @param invis the list of invisible annotations on the member, or {@code null}
+     * @return {@code true} if the member has a {@code @Mutable} annotation; {@code false} otherwise
+     */
+    public static boolean hasMutableAnnotation(@Nullable final List<AnnotationNode> vis,
+                                               @Nullable final List<AnnotationNode> invis) {
+        if (vis != null && vis.stream().anyMatch(a -> MUTABLE_DESC.equals(a.desc))) {
+            return true;
+        }
+        return invis != null && invis.stream().anyMatch(a -> MUTABLE_DESC.equals(a.desc));
     }
 }

@@ -4,6 +4,8 @@ import de.splatgames.aether.mixins.core.config.problems.ConfigProblems;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -97,6 +99,24 @@ public final class RuntimeConfig {
      * @since 0.2.0
      */
     private boolean allowFinalFieldWeakening = false;
+
+    /**
+     * Represents additional dynamic configuration properties that are not explicitly
+     * defined in the {@code RuntimeConfig} class.
+     *
+     * <p>This map allows for extensibility and flexibility in the configuration,
+     * enabling users to include custom or future options without modifying the core
+     * configuration schema.</p>
+     *
+     * <p>Keys are the property names as strings, and values are their corresponding
+     * values, which can be of any object type.</p>
+     *
+     * <p>This field is optional and may be {@code null} if no additional properties
+     * are provided.</p>
+     *
+     * @since 0.2.0
+     */
+    private Map<String, Object> additionalProperties = new HashMap<>();
 
     /**
      * Creates a new {@code RuntimeConfig} bound to the given diagnostics container.
@@ -216,6 +236,27 @@ public final class RuntimeConfig {
      */
     public void setAllowFinalFieldWeakening(final boolean allowFinalFieldWeakening) {
         this.allowFinalFieldWeakening = allowFinalFieldWeakening;
+    }
+
+    /**
+     * Returns the map of additional dynamic configuration properties.
+     *
+     * @return a map containing additional properties, never {@code null}
+     * @since 0.2.0
+     */
+    @NotNull
+    public Map<String, Object> getAdditionalProperties() {
+        return this.additionalProperties;
+    }
+
+    /**
+     * Sets the map of additional dynamic configuration properties.
+     *
+     * @param additionalProperties a map containing additional properties, must not be {@code null}
+     * @since 0.2.0
+     */
+    public void setAdditionalProperties(@NotNull final Map<String, Object> additionalProperties) {
+        this.additionalProperties = additionalProperties;
     }
 
     /**

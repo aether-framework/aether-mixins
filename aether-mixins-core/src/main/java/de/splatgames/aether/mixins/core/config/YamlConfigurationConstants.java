@@ -39,6 +39,16 @@ public final class YamlConfigurationConstants {
     public static final String K_VERSION = "version";
 
     /**
+     * Top-level runtime configuration section.
+     *
+     * <p>Path: {@code runtime}. Contains runtime behavior flags.</p>
+     *
+     * @see de.splatgames.aether.mixins.core.config.runtime.RuntimeConfig RuntimeConfig
+     * @since 0.2.0
+     */
+    public static final String K_RUNTIME = "runtime";
+
+    /**
      * Runtime flag enabling safe mode.
      *
      * <p>Path: {@code runtime.safe_mode}. When {@code true}, failed weave attempts

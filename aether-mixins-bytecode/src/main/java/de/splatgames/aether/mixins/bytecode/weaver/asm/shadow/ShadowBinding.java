@@ -23,6 +23,7 @@ import org.jetbrains.annotations.NotNull;
  *       <li>Replace owner/name of member references to point at the target.</li>
  *       <li>Neutralize optional-but-unresolved uses (e.g., default reads, dropped writes, elided calls).</li>
  *       <li>Choose correct opcodes depending on {@linkplain #isStatic() static-ness}.</li>
+ *       <li>Validate that mutable shadows are not used in constant contexts.</li>
  *     </ul>
  *   </li>
  * </ol>
@@ -69,6 +70,10 @@ public final class ShadowBinding {
      * {@code true} if a member with the stripped name and descriptor was found on the target class.
      */
     private final boolean resolved;
+    /**
+     * Whether the shadowed member is mutable (a field or a non-{@code final} method).
+     */
+    private final boolean mutable;
 
     /**
      * Creates a new binding.
@@ -79,19 +84,22 @@ public final class ShadowBinding {
      * @param desc         JVM descriptor ({@code T} for fields; {@code (args)ret} for methods); never {@code null}
      * @param optional     whether the shadow was declared optional (missing targets are tolerated)
      * @param resolved     whether a matching member was found on the target class
+     * @param mutable      whether the shadowed member is mutable (a field or a non-{@code final} method)
      */
     public ShadowBinding(@NotNull final Kind kind,
                          final boolean isStatic,
                          @NotNull final String strippedName,
                          @NotNull final String desc,
                          final boolean optional,
-                         final boolean resolved) {
+                         final boolean resolved,
+                         final boolean mutable) {
         this.kind = kind;
         this.isStatic = isStatic;
         this.strippedName = strippedName;
         this.desc = desc;
         this.optional = optional;
         this.resolved = resolved;
+        this.mutable = mutable;
     }
 
     /**
@@ -149,6 +157,15 @@ public final class ShadowBinding {
      */
     public boolean isResolved() {
         return this.resolved;
+    }
+
+    /**
+     * Returns whether the shadowed member is mutable (a field or a non-{@code final} method).
+     *
+     * @return {@code true} if mutable, {@code false} otherwise
+     */
+    public boolean isMutable() {
+        return this.mutable;
     }
 
     /**

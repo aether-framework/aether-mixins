@@ -4,7 +4,11 @@ import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.InjectHeadAdapter
 import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.InjectTailAdapter;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.PremergeInstanceHooksAdapter;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.RedirectAdapter;
+import de.splatgames.aether.mixins.bytecode.weaver.asm.adapter.UnfinalizeFieldsAdapter;
+import de.splatgames.aether.mixins.bytecode.weaver.asm.shadow.FieldSig;
+import de.splatgames.aether.mixins.bytecode.weaver.asm.shadow.ShadowMap;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.shadow.ShadowUsageValidator;
+import de.splatgames.aether.mixins.bytecode.weaver.asm.shadow.utils.AnnotationUtils;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.spec.InjectionSpec;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.spec.RedirectSpec;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.util.ChangeFlag;
@@ -24,18 +28,25 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldNode;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.objectweb.asm.Opcodes.ACC_ABSTRACT;
+import static org.objectweb.asm.Opcodes.ACC_ENUM;
 import static org.objectweb.asm.Opcodes.ACC_NATIVE;
+import static org.objectweb.asm.Opcodes.ACC_SYNTHETIC;
 import static org.objectweb.asm.Opcodes.ASM9;
 
 /**
@@ -401,12 +412,128 @@ public final class AsmWeaver implements Weaver {
                 !work.getInjects().isEmpty() || !work.getRedirects().isEmpty();
 
         if (needsPremerge) {
+            Set<FieldSig> unfinalize = new HashSet<>();
+
+            try {
+                // Parse the current target class into a ClassNode once
+                final ClassNode targetNode = new ClassNode(ASM9);
+                new ClassReader(original).accept(targetNode, 0);
+
+                // Build quick lookup for target fields -> FieldNode (by name+desc)
+                final Map<FieldSig, FieldNode> targetFieldLookup = new LinkedHashMap<>();
+                if (targetNode.fields != null) {
+                    for (FieldNode f : targetNode.fields) {
+                        targetFieldLookup.put(new FieldSig(f.name, f.desc), f);
+                    }
+                }
+
+                Object failOnConstantValueObject = request.runtime().getAdditionalProperties().get("failOnConstantValue");
+                boolean failOnConstantValue = failOnConstantValueObject instanceof Boolean b && b || failOnConstantValueObject instanceof String s && Boolean.parseBoolean(s);
+
+                // Collect all referenced hooks (injects + redirects) once
+                final Set<ResolvedHook> allHooks = new HashSet<>();
+                work.getInjects().values().forEach(list -> list.forEach(spec -> allHooks.add(spec.hook())));
+                work.getRedirects().values().forEach(list -> list.forEach(spec -> allHooks.add(spec.hook())));
+
+                for (ResolvedHook hook : allHooks) {
+                    // Load mixin class bytes
+                    final byte[] mixinBytes = request.source().getClassBytes(hook.owner());
+                    if (mixinBytes == null) {
+                        problems.warn("unfinalize/" + internalName, "Mixin owner not found: " + hook.owner() + " (skipping)");
+                        continue;
+                    }
+
+                    // Parse mixin class
+                    final ClassNode mixinNode = new ClassNode(ASM9);
+                    new ClassReader(mixinBytes).accept(mixinNode, 0);
+
+                    // Build a ShadowMap for (mixin,target)
+                    final var shadowMap = ShadowMap.from(
+                            mixinNode, targetNode, problems, "unfinalize/" + internalName + "/" + hook.owner()
+                    );
+
+                    // Iterate mixin fields that might be @Shadow and collect mutable+resolved targets
+                    if (mixinNode.fields != null) {
+                        mixinNode.fields.forEach(f -> {
+                            var shadowAnno = AnnotationUtils.getShadowAnnotation(f.visibleAnnotations, f.invisibleAnnotations);
+                            if (shadowAnno == null) {
+                                return;
+                            }
+
+                            String raw = shadowAnno.prefix();
+                            String prefix = (raw == null ? "shadow$" : raw.isEmpty() ? "" : raw);
+
+                            // Strip prefix if present; allow exact names if prefix == ""
+                            String stripped = f.name.startsWith(prefix) ? f.name.substring(prefix.length()) : f.name;
+
+                            final var binding = shadowMap.field(stripped, f.desc);
+
+                            if (binding != null && binding.isResolved() && binding.isMutable()) {
+                                FieldSig sig = new FieldSig(binding.getStrippedName(), binding.getDesc());
+                                FieldNode tf = targetFieldLookup.get(sig);
+
+                                // Guard: skip enum/synthetic meta stuff
+                                final int acc = (tf != null ? tf.access : 0);
+                                final boolean isEnum = (acc & ACC_ENUM) != 0;
+                                final boolean isSynthetic = (acc & ACC_SYNTHETIC) != 0;
+                                if (isEnum || isSynthetic || "serialVersionUID".equals(sig.getName())) {
+                                    problems.warn("unfinalize/" + internalName + "/" + hook.owner(),
+                                            "Skipping @Shadow field that appears to be enum/synthetic/serialVersionUID: " + sig.getName() + " " + sig.getDesc());
+                                } else {
+                                    if (tf != null && tf.value != null) {
+                                        String ctx = "unfinalize/" + internalName + "/" + hook.owner();
+                                        String msg = "Mutable shadow on compile-time constant field '" + sig.getName() + " " + sig.getDesc()
+                                                + "' (ConstantValue present). Writes may not affect inlined reads.";
+                                        if (failOnConstantValue) {
+                                            problems.error(ctx, msg);
+                                        } else {
+                                            problems.warn(ctx, msg);
+                                        }
+                                    }
+                                    unfinalize.add(sig);
+                                }
+                            }
+                        });
+                    }
+
+                }
+            } catch (Throwable t) {
+                problems.warn("unfinalize/" + internalName, "Failed to compute unfinalize set: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+            }
+
             cv = new PremergeInstanceHooksAdapter(ASM9, cv, internalName, work, request, problems);
+
+            cv = new UnfinalizeFieldsAdapter(ASM9, cv, unfinalize);
         }
 
         cr.accept(cv, acceptFlags);
         return changed.isSet() ? cw.toByteArray() : null;
     }
+
+    @NotNull
+    private static String prettyPrintInsn(@NotNull final AbstractInsnNode insn) {
+        return switch (insn.getType()) {
+            case AbstractInsnNode.FIELD_INSN -> {
+                var f = (org.objectweb.asm.tree.FieldInsnNode) insn;
+                yield f.getOpcode() + " " + f.owner + "." + f.name + " " + f.desc;
+            }
+            case AbstractInsnNode.VAR_INSN -> {
+                var v = (org.objectweb.asm.tree.VarInsnNode) insn;
+                yield v.getOpcode() + " VAR_" + v.var;
+            }
+            case AbstractInsnNode.INSN -> insn.getOpcode() + " (simple)";
+            case AbstractInsnNode.INT_INSN -> {
+                var i = (org.objectweb.asm.tree.IntInsnNode) insn;
+                yield i.getOpcode() + " INT " + i.operand;
+            }
+            case AbstractInsnNode.METHOD_INSN -> {
+                var m = (org.objectweb.asm.tree.MethodInsnNode) insn;
+                yield m.getOpcode() + " " + m.owner + "." + m.name + m.desc;
+            }
+            default -> insn.getOpcode() + " (other)";
+        };
+    }
+
 
     /**
      * Derives the per-method signature key used to group specs within a class.

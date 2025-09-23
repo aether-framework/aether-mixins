@@ -99,8 +99,19 @@ public final class ShadowRewriter {
         for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; ) {
             final AbstractInsnNode next = insn.getNext();
 
-            if (insn instanceof FieldInsnNode fin && fin.owner.equals(mixinOwner)) {
-                final ShadowBinding b = map.field(fin.name, fin.desc);
+            if (insn instanceof FieldInsnNode fin) {
+                final boolean isMixinOwner = fin.owner.equals(mixinOwner);
+                final boolean isTargetOwner = fin.owner.equals(targetOwner);
+
+                ShadowBinding b = map.field(fin.name, fin.desc);
+                if (b == null) {
+                    final String prefix = "shadow$";
+                    final String stripped = fin.name.startsWith(prefix)
+                            ? fin.name.substring(prefix.length())
+                            : fin.name;
+                    b = map.field(stripped, fin.desc);
+                }
+
                 if (b != null) {
                     if (!b.isResolved() && b.isOptional()) {
                         // optional & missing => neutralize
@@ -126,24 +137,43 @@ public final class ShadowRewriter {
                     }
 
                     if (b.isResolved()) {
-                        // normal rewrite owner+name to target
-                        fin.owner = targetOwner;
+                        if (!isTargetOwner) {
+                            fin.owner = targetOwner;
+                        }
                         fin.name = b.getStrippedName();
+                    }
+                } else if (isMixinOwner) {
+                    final String prefix = "shadow$";
+                    if (fin.name.startsWith(prefix)) {
+                        fin.owner = targetOwner;
+                        fin.name = fin.name.substring(prefix.length());
+                    }
+                } else if (isTargetOwner) {
+                    final String prefix = "shadow$";
+                    if (fin.name.startsWith(prefix)) {
+                        fin.name = fin.name.substring(prefix.length());
                     }
                 }
             }
 
             if (insn instanceof MethodInsnNode min && min.owner.equals(mixinOwner)) {
                 final ShadowBinding b = map.method(min.name, min.desc);
-                if (b != null) {
+                if (b == null) {
+                    final String prefix = "shadow$";
+                    if (min.name.startsWith(prefix)) {
+                        min.owner = targetOwner;
+                        min.name = min.name.substring(prefix.length());
+                    }
+                } else {
                     if (!b.isResolved() && b.isOptional()) {
                         // optional & missing => neutralize invocation
                         // drop receiver for non-static and all args, then push default return (if any)
                         final int argSlots = slotsOfArgs(min.desc);
+                        dropSlotsBefore(method, min, argSlots);
                         if (min.getOpcode() != INVOKESTATIC) {
                             method.instructions.insertBefore(min, new InsnNode(POP)); // drop 'this'
                         }
-                        dropSlotsBefore(method, min, argSlots);
+
                         final AbstractInsnNode retDefault = defaultReturnForDescriptor(min.desc);
                         if (retDefault != null) {
                             method.instructions.insertBefore(min, retDefault);
@@ -151,9 +181,7 @@ public final class ShadowRewriter {
                         method.instructions.remove(min);
                         insn = next;
                         continue;
-                    }
-
-                    if (b.isResolved()) {
+                    } else if (b.isResolved()) {
                         min.owner = targetOwner;
                         min.name = b.getStrippedName();
                     }
@@ -161,6 +189,17 @@ public final class ShadowRewriter {
             }
 
             insn = next;
+        }
+
+        for (AbstractInsnNode n = method.instructions.getFirst(); n != null; n = n.getNext()) {
+            if (n instanceof FieldInsnNode f && f.owner.equals(mixinOwner)) {
+                throw new IllegalStateException("Shadow rewrite left field ref to mixin owner: "
+                        + f.owner + "." + f.name + " " + f.desc);
+            }
+            if (n instanceof MethodInsnNode m && m.owner.equals(mixinOwner)) {
+                throw new IllegalStateException("Shadow rewrite left method call to mixin owner: "
+                        + m.owner + "." + m.name + m.desc);
+            }
         }
     }
 

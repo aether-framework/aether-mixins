@@ -118,10 +118,17 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
     }
 
     /**
-     * Records existing methods on the target class to detect collisions with copied hooks.
+     * Records existing methods on the target class.
      *
-     * <p>Each visited method's {@code name+desc} is stored in {@link #existing} to determine
-     * whether an incoming hook requires renaming under {@code @Unique} rules.</p>
+     * @param access the method's access flags (see {@link Opcodes}). This parameter also indicates if
+     *               the method is synthetic and/or deprecated.
+     * @param name   the method's name.
+     * @param desc   the method's descriptor (see {@link org.objectweb.asm.Type Type}).
+     * @param sig    the method's signature. May be {@literal null} if the method parameters,
+     *               return type and exceptions do not use generic types.
+     * @param ex     the internal names of the method's exception classes (see {@link org.objectweb.asm.Type#getInternalName() Type.getInternalName}). May be {@literal null}.
+     * @return a visitor to visit the method's code, annotations and attributes, or {@literal null}
+     * if this class visitor is not interested in visiting this method.
      */
     @Override
     @Nullable
