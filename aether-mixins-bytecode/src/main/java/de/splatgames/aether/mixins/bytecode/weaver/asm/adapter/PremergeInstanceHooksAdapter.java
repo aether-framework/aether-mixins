@@ -16,6 +16,7 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
 import java.util.HashSet;
@@ -220,6 +221,98 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
         final ShadowMap shadowMap = ShadowMap.from(
                 mixinNode, targetNode, this.problems, "shadow/" + this.targetOwner + "/" + hook.owner()
         );
+
+        // hoist @Unique helpers referenced by the hook body
+        final String UNIQUE_DESC_ANN = "Lde/splatgames/aether/mixins/core/api/Unique;";
+
+        for (var insn = src.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn instanceof MethodInsnNode min && min.owner.equals(mixinNode.name)) {
+                // Find the referenced method on the mixin
+                final MethodNode helper = mixinNode.methods.stream()
+                        .filter(m -> m.name.equals(min.name) && m.desc.equals(min.desc))
+                        .findFirst().orElse(null);
+                if (helper == null) {
+                    // Not a mixin-defined method → leave; ShadowRewriter will sanity-check
+                    continue;
+                }
+
+                final boolean isUniqueHelper =
+                        (helper.visibleAnnotations != null && helper.visibleAnnotations.stream().anyMatch(a -> UNIQUE_DESC_ANN.equals(a.desc))) ||
+                                (helper.invisibleAnnotations != null && helper.invisibleAnnotations.stream().anyMatch(a -> UNIQUE_DESC_ANN.equals(a.desc)));
+
+                if (!isUniqueHelper) {
+                    // Only hoist @Unique helpers here
+                    continue;
+                }
+
+                // Decide final helper name; handle collision like for hooks
+                String helperFinalName = helper.name;
+                if (this.existing.contains(helper.name + helper.desc)) {
+                    helperFinalName = helper.name + "$am$" + Integer.toHexString((mixinNode.name + helper.name + helper.desc).hashCode());
+                    FinalNameRegistry.register(this.targetOwner, helper.name, helper.desc, helperFinalName);
+                }
+
+                // If we've already emitted the helper under final name, just rewrite callsite and continue
+                if (this.existing.contains(helperFinalName + helper.desc)) {
+                    min.owner = this.targetOwner;
+                    min.name  = helperFinalName;
+                    continue;
+                }
+
+                // Emit @Unique helper onto target as private (keep useful flags); reject abstract/native
+                final int helperAccess =
+                        (helper.access & ~(Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED)) |
+                                Opcodes.ACC_PRIVATE |
+                                (helper.access & (Opcodes.ACC_SYNCHRONIZED | Opcodes.ACC_VARARGS | Opcodes.ACC_BRIDGE | Opcodes.ACC_SYNTHETIC));
+
+                if ((helper.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) {
+                    this.problems.error("premerge/" + this.targetOwner,
+                            "@Unique helper must be concrete (no abstract/native): " +
+                                    mixinNode.name + "." + helper.name + helper.desc);
+                    return;
+                }
+
+                // Copy helper, rewrite shadows inside the helper too, strip mixin-only annotations, then emit
+                final MethodNode helperCopy = new MethodNode(
+                        helperAccess, helperFinalName, helper.desc, helper.signature,
+                        (helper.exceptions == null ? null : helper.exceptions.toArray(String[]::new))
+                );
+                helper.accept(helperCopy);
+
+                // Rewrite shadows / mixin-owner refs inside helper copy as well
+                ShadowRewriter.rewriteMethodBody(
+                        helperCopy, mixinNode.name, this.targetOwner, shadowMap, mixinNode
+                );
+
+                if (helperCopy.visibleAnnotations != null) {
+                    helperCopy.visibleAnnotations.removeIf(a ->
+                            UNIQUE_DESC_ANN.equals(a.desc) ||
+                                    "Lde/splatgames/aether/mixins/core/api/Inject;".equals(a.desc) ||
+                                    "Lde/splatgames/aether/mixins/core/api/Redirect;".equals(a.desc) ||
+                                    "Lde/splatgames/aether/mixins/core/api/Shadow;".equals(a.desc)
+                    );
+                }
+                if (helperCopy.invisibleAnnotations != null) {
+                    helperCopy.invisibleAnnotations.removeIf(a ->
+                            UNIQUE_DESC_ANN.equals(a.desc) ||
+                                    "Lde/splatgames/aether/mixins/core/api/Inject;".equals(a.desc) ||
+                                    "Lde/splatgames/aether/mixins/core/api/Redirect;".equals(a.desc) ||
+                                    "Lde/splatgames/aether/mixins/core/api/Shadow;".equals(a.desc)
+                    );
+                }
+
+                final MethodVisitor helperMV = super.visitMethod(
+                        helperAccess, helperFinalName, helper.desc, helper.signature,
+                        (helper.exceptions == null ? null : helper.exceptions.toArray(String[]::new))
+                );
+                helperCopy.accept(helperMV);
+                this.existing.add(helperFinalName + helper.desc);
+
+                // Rewrite call site in the hook body to target owner + final helper name
+                min.owner = this.targetOwner;
+                min.name  = helperFinalName;
+            }
+        }
 
         ShadowRewriter.rewriteMethodBody(
                 src,
