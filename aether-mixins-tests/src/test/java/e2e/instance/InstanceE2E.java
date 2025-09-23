@@ -15,11 +15,11 @@ public class InstanceE2E {
     // --- Inject into instance method ---
     @Test
     void injectInstanceMethod() throws Exception {
-        var url = ClassLoader.getSystemResource("mixins_inject_instance_method.yml");
-        assertNotNull(url, "mixins_inject_instance_method.yml not found");
+        var url = ClassLoader.getSystemResource("mixins_instance_inject_method.yml");
+        assertNotNull(url, "mixins_instance_inject_method.yml not found");
         var cfg = Paths.get(url.toURI()).toAbsolutePath().toString();
 
-        var r = JvmRunner.runWithAgent("e2e.instance.InjectInstanceMethodMain", List.of(), Map.of("aether.mixins.config", cfg));
+        var r = JvmRunner.runWithAgent("e2e.instance.HeadInstanceMethodMain", List.of(), Map.of("aether.mixins.config", cfg));
         assertEquals(0, r.exitCode, r.stderr);
         var out = r.stdout.replaceAll("\\s+", " ").trim();
         assertTrue(out.contains("INJECT-SUCCESS"), () -> "Expected INJECT-SUCCESS in output\n" + r.stdout + r.stderr);

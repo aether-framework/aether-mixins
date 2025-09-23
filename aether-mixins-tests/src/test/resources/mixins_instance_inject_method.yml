@@ -2,7 +2,7 @@ version: 1
 mixins:
   - name: inject-instance-method
     classes:
-      - e2e.instance.mixins.InjectInstanceMethodMixin
+      - e2e.instance.mixins.HeadInstanceMethodMixin
 runtime:
   safe_mode: false
   verify_frames: strict
