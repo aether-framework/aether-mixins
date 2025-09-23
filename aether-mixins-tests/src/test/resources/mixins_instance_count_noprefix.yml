@@ -1,0 +1,9 @@
+version: 1
+mixins:
+  - name: e2e-instance-shadow-noprefix
+    classes:
+      - e2e.instance.mixins.InstanceShadowNoPrefixMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict
+  allow_final_field_weakening: true

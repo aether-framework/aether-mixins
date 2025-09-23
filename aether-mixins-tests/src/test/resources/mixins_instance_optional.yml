@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-optional
+    classes:
+      - e2e.instance.mixins.OptionalShadowMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict
