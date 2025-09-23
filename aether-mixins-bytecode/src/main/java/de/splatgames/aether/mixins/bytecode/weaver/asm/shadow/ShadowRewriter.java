@@ -1,8 +1,10 @@
 package de.splatgames.aether.mixins.bytecode.weaver.asm.shadow;
 
+import de.splatgames.aether.mixins.bytecode.weaver.asm.shadow.utils.AnnotationUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
@@ -94,7 +96,8 @@ public final class ShadowRewriter {
     public static void rewriteMethodBody(@NotNull final MethodNode method,
                                          @NotNull final String mixinOwner,
                                          @NotNull final String targetOwner,
-                                         @NotNull final ShadowMap map) {
+                                         @NotNull final ShadowMap map,
+                                         @NotNull ClassNode mixinNode) {
 
         for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; ) {
             final AbstractInsnNode next = insn.getNext();
@@ -105,7 +108,7 @@ public final class ShadowRewriter {
 
                 ShadowBinding b = map.field(fin.name, fin.desc);
                 if (b == null) {
-                    final String prefix = "shadow$";
+                    final String prefix = prefixForField(mixinNode, fin.name, fin.desc);
                     final String stripped = fin.name.startsWith(prefix)
                             ? fin.name.substring(prefix.length())
                             : fin.name;
@@ -143,13 +146,13 @@ public final class ShadowRewriter {
                         fin.name = b.getStrippedName();
                     }
                 } else if (isMixinOwner) {
-                    final String prefix = "shadow$";
+                    final String prefix = prefixForField(mixinNode, fin.name, fin.desc);
                     if (fin.name.startsWith(prefix)) {
                         fin.owner = targetOwner;
                         fin.name = fin.name.substring(prefix.length());
                     }
                 } else if (isTargetOwner) {
-                    final String prefix = "shadow$";
+                    final String prefix = prefixForField(mixinNode, fin.name, fin.desc);
                     if (fin.name.startsWith(prefix)) {
                         fin.name = fin.name.substring(prefix.length());
                     }
@@ -159,7 +162,7 @@ public final class ShadowRewriter {
             if (insn instanceof MethodInsnNode min && min.owner.equals(mixinOwner)) {
                 final ShadowBinding b = map.method(min.name, min.desc);
                 if (b == null) {
-                    final String prefix = "shadow$";
+                    final String prefix = prefixForMethod(mixinNode, min.name, min.desc);
                     if (min.name.startsWith(prefix)) {
                         min.owner = targetOwner;
                         min.name = min.name.substring(prefix.length());
@@ -201,6 +204,90 @@ public final class ShadowRewriter {
                         + m.owner + "." + m.name + m.desc);
             }
         }
+    }
+
+    /**
+     * Determines the {@code @Shadow} prefix for a given field in the mixin class.
+     *
+     * <p>This first looks for an exact match of name and descriptor, and if found,
+     * returns the prefix from that annotation. If no exact match is found, it looks
+     * for any {@code @Shadow} annotation whose prefix matches the start of the name,
+     * and returns that prefix. If multiple such annotations exist, the first one
+     * encountered is returned.</p>
+     *
+     * <p>If no matching {@code @Shadow} annotation is found, a warning is printed
+     * to standard output and a fallback prefix of {@code "shadow$"} is returned.</p>
+     *
+     * @param mixinNode the mixin class node containing the field; must not be {@code null}
+     * @param name      the field name as used in the bytecode instruction; must not be {@code null}
+     * @param desc      the field descriptor as used in the bytecode instruction; must not be {@code null}
+     * @return the determined prefix, or a fallback if none could be determined
+     */
+    @NotNull
+    private static String prefixForField(@NotNull final ClassNode mixinNode,
+                                         @NotNull final String name,
+                                         @NotNull final String desc) {
+        if (mixinNode.fields != null) {
+            for (var f : mixinNode.fields) {
+                if (name.equals(f.name) && desc.equals(f.desc)) {
+                    var sa = AnnotationUtils.getShadowAnnotation(f.visibleAnnotations, f.invisibleAnnotations);
+                    if (sa != null) return sa.prefix();
+                }
+            }
+            for (var f : mixinNode.fields) {
+                var sa = AnnotationUtils.getShadowAnnotation(f.visibleAnnotations, f.invisibleAnnotations);
+                if (sa != null) {
+                    var p = sa.prefix();
+                    if (p != null && !p.isEmpty() && name.startsWith(p)) {
+                        return p;
+                    }
+                }
+            }
+        }
+
+        return "shadow$"; // Fallback
+    }
+
+    /**
+     * Determines the {@code @Shadow} prefix for a given method in the mixin class.
+     *
+     * <p>This first looks for an exact match of name and descriptor, and if found,
+     * returns the prefix from that annotation. If no exact match is found, it looks
+     * for any {@code @Shadow} annotation whose prefix matches the start of the name,
+     * and returns that prefix. If multiple such annotations exist, the first one
+     * encountered is returned.</p>
+     *
+     * <p>If no matching {@code @Shadow} annotation is found, a warning is printed
+     * to standard output and a fallback prefix of {@code "shadow$"} is returned.</p>
+     *
+     * @param mixinNode the mixin class node containing the method; must not be {@code null}
+     * @param name      the method name as used in the bytecode instruction; must not be {@code null}
+     * @param desc      the method descriptor as used in the bytecode instruction; must not be {@code null}
+     * @return the determined prefix, or a fallback if none could be determined
+     */
+    @NotNull
+    private static String prefixForMethod(@NotNull final ClassNode mixinNode,
+                                          @NotNull final String name,
+                                          @NotNull final String desc) {
+        if (mixinNode.methods != null) {
+            for (var m : mixinNode.methods) {
+                if (name.equals(m.name) && desc.equals(m.desc)) {
+                    var sa = AnnotationUtils.getShadowAnnotation(m.visibleAnnotations, m.invisibleAnnotations);
+                    if (sa != null) return sa.prefix();
+                }
+            }
+            for (var m : mixinNode.methods) {
+                var sa = AnnotationUtils.getShadowAnnotation(m.visibleAnnotations, m.invisibleAnnotations);
+                if (sa != null) {
+                    var p = sa.prefix();
+                    if (p != null && !p.isEmpty() && name.startsWith(p)) {
+                        return p;
+                    }
+                }
+            }
+        }
+
+        return "shadow$";
     }
 
     /**

@@ -127,15 +127,10 @@ public final class ShadowMap {
                     continue;
                 }
 
-                // Explicit blank => empty prefix for fields
-                String prefix = shadow.prefix().isBlank() ? "" : shadow.prefix();
-                if (!field.name.startsWith(prefix)) {
-                    problems.error(contextPath,
-                            "@Shadow field name '" + field.name + "' does not start with prefix '" + prefix + "'");
-                    continue;
-                }
-
-                String stripped = field.name.substring(prefix.length());
+                final String prefix = shadow.prefix();
+                final String stripped = field.name.startsWith(prefix)
+                        ? field.name.substring(prefix.length())
+                        : field.name;
 
                 FieldNode targetField = target.fields.stream()
                         .filter(f -> f.name.equals(stripped) && f.desc.equals(field.desc))
@@ -177,15 +172,10 @@ public final class ShadowMap {
                     continue;
                 }
 
-                // Explicit blank => empty prefix for fields
-                String prefix = shadow.prefix().isBlank() ? "" : shadow.prefix();
-                if (!method.name.startsWith(prefix)) {
-                    problems.error(contextPath,
-                            "@Shadow method name '" + method.name + "' does not start with prefix '" + prefix + "'");
-                    continue;
-                }
-
-                String stripped = method.name.substring(prefix.length());
+                final String prefix = shadow.prefix();
+                final String stripped = method.name.startsWith(prefix)
+                        ? method.name.substring(prefix.length())
+                        : method.name;
 
                 MethodNode targetMethod = target.methods.stream()
                         .filter(m -> m.name.equals(stripped) && m.desc.equals(method.desc))

@@ -225,7 +225,8 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
                 src,
                 mixinNode.name,
                 this.targetOwner,
-                shadowMap
+                shadowMap,
+                mixinNode
         );
 
         // 6) Handle @Unique (visible or invisible)
