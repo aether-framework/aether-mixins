@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-redirect-special-instance
+    classes:
+      - e2e.instance.mixins.RedirectSpecialInstanceMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

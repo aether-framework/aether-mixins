@@ -1,0 +1,9 @@
+version: 1
+mixins:
+  - name: e2e-instance-head-priority
+    classes:
+      - e2e.instance.mixins.HeadPrioLow
+      - e2e.instance.mixins.HeadPrioHigh
+runtime:
+  safe_mode: false
+  verify_frames: strict

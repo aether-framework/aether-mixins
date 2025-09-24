@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-tail-state
+    classes:
+      - e2e.instance.mixins.TailStateMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-unique-helper-collision
+    classes:
+      - e2e.instance.mixins.UniqueHelperCollisionMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

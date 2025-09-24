@@ -1,0 +1,9 @@
+version: 1
+mixins:
+  - name: e2e-instance-tail-priority
+    classes:
+      - e2e.instance.mixins.TailPrioLow
+      - e2e.instance.mixins.TailPrioHigh
+runtime:
+  safe_mode: false
+  verify_frames: strict

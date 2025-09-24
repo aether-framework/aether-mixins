@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-tail-cir-long
+    classes:
+      - e2e.instance.mixins.TailCirLongMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict
