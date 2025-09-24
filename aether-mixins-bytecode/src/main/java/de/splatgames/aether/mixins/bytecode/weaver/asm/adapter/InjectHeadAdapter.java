@@ -392,7 +392,11 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
 
             if (HookShape.requiresThis(kind)) {
                 HookShape.emitThisIfNeeded(this, kind);
+            } else {
+                this.visitVarInsn(Opcodes.ALOAD, 0); // always push 'this' for ctor instance hooks
             }
+
+
             int local = 1; // constructor is always instance
             if (HookShape.passesArgs(kind)) {
                 local = HookShape.emitArgs(this, this.targetDesc, local);
@@ -427,11 +431,6 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
                     final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
                     final String resolved = this.finalNameLookup.apply(k, null);
                     if (resolved != null) callName = resolved;
-                }
-
-                // Ensure receiver for instance hooks when the hook descriptor does NOT take OWNER as a parameter.
-                if (!HookShape.requiresThis(kind)) {
-                    super.visitVarInsn(Opcodes.ALOAD, 0); // 'this' for ctor is in local 0
                 }
 
                 super.visitMethodInsn(Opcodes.INVOKESPECIAL, this.targetOwnerInternalName, callName, this.hook.desc(), false);

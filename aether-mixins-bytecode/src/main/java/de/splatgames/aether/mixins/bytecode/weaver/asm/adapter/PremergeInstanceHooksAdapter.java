@@ -13,6 +13,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
@@ -96,6 +97,12 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
     private final Set<String> existing = new HashSet<>();
 
     /**
+     * Set of field signatures (keyed as {@code name+desc}) already present on the target,
+     * populated during {@link #visitField(int, String, String, String, Object)}.
+     */
+    private final Set<String> existingFields = new HashSet<>();
+
+    /**
      * Creates a new pre-merge adapter that copies hook methods from mixins into the target owner.
      *
      * @param api         ASM API level
@@ -140,6 +147,16 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
                                      final String[] ex) {
         this.existing.add(name + desc);
         return super.visitMethod(access, name, desc, sig, ex);
+    }
+
+    @Override
+    public FieldVisitor visitField(final int access,
+                                   final String name,
+                                   final String desc,
+                                   final String sig,
+                                   final Object value) {
+        this.existingFields.add(name + desc);
+        return super.visitField(access, name, desc, sig, value);
     }
 
     /**
@@ -222,9 +239,66 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
                 mixinNode, targetNode, this.problems, "shadow/" + this.targetOwner + "/" + hook.owner()
         );
 
-        // hoist @Unique helpers referenced by the hook body
+        // --- Hoist @Unique FIELDS referenced by the hook body ---
         final String UNIQUE_DESC_ANN = "Lde/splatgames/aether/mixins/core/api/Unique;";
 
+        for (var insn = src.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn instanceof org.objectweb.asm.tree.FieldInsnNode fin && fin.owner.equals(mixinNode.name)) {
+                // Find the referenced field on the mixin
+                final org.objectweb.asm.tree.FieldNode mixinField = mixinNode.fields.stream()
+                        .filter(f -> f.name.equals(fin.name) && f.desc.equals(fin.desc))
+                        .findFirst().orElse(null);
+                if (mixinField == null) {
+                    // Not declared on mixin; ShadowRewriter will sanity-check.
+                    continue;
+                }
+
+                final boolean isUniqueField =
+                        (mixinField.visibleAnnotations != null && mixinField.visibleAnnotations.stream().anyMatch(a -> UNIQUE_DESC_ANN.equals(a.desc))) ||
+                                (mixinField.invisibleAnnotations != null && mixinField.invisibleAnnotations.stream().anyMatch(a -> UNIQUE_DESC_ANN.equals(a.desc)));
+
+                if (!isUniqueField) {
+                    // Only hoist @Unique fields here; regular fields are expected to be shadowed or rejected elsewhere.
+                    continue;
+                }
+
+                // Decide final field name; handle collisions deterministically (same scheme as methods)
+                String finalFieldName = mixinField.name;
+                if (this.existingFields.contains(mixinField.name + mixinField.desc)) {
+                    finalFieldName = mixinField.name + "$am$" + Integer.toHexString((mixinNode.name + mixinField.name + mixinField.desc).hashCode());
+                    FinalNameRegistry.register(this.targetOwner, mixinField.name, mixinField.desc, finalFieldName);
+                }
+
+                // If we already emitted the field under final name, just rewrite owner/name at the callsite
+                if (this.existingFields.contains(finalFieldName + mixinField.desc)) {
+                    fin.owner = this.targetOwner;
+                    fin.name = finalFieldName;
+                    continue;
+                }
+
+                // Emit field onto target; make it private, preserve useful flags (e.g., volatile, final)
+                final int fieldAccess =
+                        (mixinField.access & ~(Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED)) |
+                                Opcodes.ACC_PRIVATE |
+                                (mixinField.access & (Opcodes.ACC_VOLATILE | Opcodes.ACC_FINAL | Opcodes.ACC_TRANSIENT | Opcodes.ACC_SYNTHETIC));
+
+                // Copy field; strip mixin-only annotations
+                final var fv = super.visitField(fieldAccess, finalFieldName, mixinField.desc, mixinField.signature, mixinField.value);
+                // We don’t propagate @Unique/@Inject/@Redirect/@Shadow annotations to the target
+                // (ASM’s FieldNode -> FieldVisitor copy is manual here; we skip annotations entirely.)
+                if (fv != null) {
+                    fv.visitEnd();
+                }
+
+                this.existingFields.add(finalFieldName + mixinField.desc);
+
+                // Rewrite field ref in hook body to target owner + final name
+                fin.owner = this.targetOwner;
+                fin.name = finalFieldName;
+            }
+        }
+
+        // hoist @Unique helpers referenced by the hook body
         for (var insn = src.instructions.getFirst(); insn != null; insn = insn.getNext()) {
             if (insn instanceof MethodInsnNode min && min.owner.equals(mixinNode.name)) {
                 // Find the referenced method on the mixin

@@ -275,7 +275,15 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
             if (HookShape.requiresThis(kind)) {
                 HookShape.emitThisIfNeeded(this, kind);
             }
-            int local = instance ? 1 : 0;
+
+            // Push receiver first when OWNER is not part of hook descriptor.
+            if (this.hook.invocation().isInstance() && !HookShape.requiresThis(kind)) {
+                // Receiver must be pushed before args for an instance invoke
+                this.visitVarInsn(ALOAD, 0);
+            }
+
+            // Now marshal original args in declaration order
+            int local = HookShape.isInstance(this.targetAccess) ? 1 : 0;
             if (HookShape.passesArgs(kind)) {
                 local = HookShape.emitArgs(this, this.targetDesc, local);
             }
@@ -294,12 +302,6 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
                 HookShape.emitCirSetReturn(this, CIR_INTERNAL, ret);
 
                 HookShape.emitLoadCallbackInfoReturnableIfNeeded(this, kind, cbLocal);
-            }
-
-            // Ensure receiver for instance hooks when the hook descriptor does NOT take OWNER as a parameter.
-            if (this.hook.invocation().isInstance() && !HookShape.requiresThis(kind)) {
-                // Receiver must be pushed before args for an instance invoke
-                this.visitVarInsn(ALOAD, 0);
             }
 
             // Call hook (switch STATIC vs INSTANCE)

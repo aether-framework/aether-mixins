@@ -246,6 +246,19 @@ public final class RedirectAdapter extends MethodVisitor {
                         final String resolved = this.finalNameLookup.apply(k, null);
                         if (resolved != null) callName = resolved;
                     }
+
+                    final boolean handlerIsStatic = this.hook.invocation().isStatic();
+                    final String ctx = this.ctx;
+                    validateRedirectSignatureOrThrow(
+                            ctx,
+                            handlerIsStatic,
+                            this.owner,
+                            this.desc,
+                            this.hook.desc(),
+                            (this.targetOwnerInternalName != null ? this.targetOwnerInternalName : this.thisClass),
+                            this.id
+                    );
+
                     super.visitMethodInsn(INVOKESTATIC, resolvedOwner, callName, this.hook.desc(), false);
                 } else {
                     // We only support rewriting self-calls, because the merged hook lives in the target class.
@@ -267,6 +280,18 @@ public final class RedirectAdapter extends MethodVisitor {
                         final String resolved = this.finalNameLookup.apply(k, null);
                         if (resolved != null) callName = resolved;
                     }
+
+                    final boolean handlerIsStatic = this.hook.invocation().isStatic();
+                    final String ctx = this.ctx;
+                    validateRedirectSignatureOrThrow(
+                            ctx,
+                            handlerIsStatic,
+                            this.owner,
+                            this.desc,
+                            this.hook.desc(),
+                            (this.targetOwnerInternalName != null ? this.targetOwnerInternalName : this.thisClass),
+                            this.id
+                    );
 
                     // Stack note:
                     // For a self-call, the original receiver 'this' is already on the stack.
@@ -349,5 +374,81 @@ public final class RedirectAdapter extends MethodVisitor {
         }
 
         return opcodeOk;
+    }
+
+    /**
+     * Validates that the redirect handler signature is compatible with the original call site.
+     *
+     * <p>For static handlers, the first parameter must be the owner type of the original call
+     * (the receiver), followed by the original call arguments. For instance handlers, the
+     * parameters must exactly match the original call arguments (no receiver).</p>
+     *
+     * <p>The return types of both signatures must match exactly.</p>
+     *
+     * @param ctx             human-readable context for diagnostics
+     * @param handlerIsStatic whether the redirect handler is static
+     * @param callOwner       internal JVM name (slash-separated) of the original invocation owner
+     * @param callDesc        JVM descriptor of the original invocation
+     * @param hookDesc        JVM descriptor of the redirect handler
+     * @param hookOwner       internal JVM name (slash-separated) of the redirect handler owner
+     * @param id              developer-defined identifier used in diagnostics
+     * @throws IllegalStateException if the signatures are incompatible
+     * @since 0.2.0
+     */
+    private static void validateRedirectSignatureOrThrow(
+            @NotNull final String ctx,
+            final boolean handlerIsStatic,
+            @NotNull final String callOwner,
+            @NotNull final String callDesc,
+            @NotNull final String hookDesc,
+            @NotNull final String hookOwner,
+            @NotNull final String id
+    ) {
+        var callArgs = org.objectweb.asm.Type.getArgumentTypes(callDesc);
+        var hookArgs = org.objectweb.asm.Type.getArgumentTypes(hookDesc);
+
+        var callOwnerType = org.objectweb.asm.Type.getObjectType(callOwner);
+        boolean hookStartsWithOwner =
+                hookArgs.length > 0 && hookArgs[0].equals(callOwnerType);
+
+        if (handlerIsStatic) {
+            if (!hookStartsWithOwner) {
+                throw new IllegalStateException(
+                        ctx + ": redirect handler must be static and take Owner as first arg; " +
+                                "expected (" + callOwner + "; " + callDesc.substring(1) + " but got " + hookDesc +
+                                " [id=" + id + "]"
+                );
+            }
+            if (hookArgs.length - 1 != callArgs.length) {
+                throw new IllegalStateException(ctx + ": arg count mismatch for static handler [id=" + id + "]");
+            }
+            for (int i = 0; i < callArgs.length; i++) {
+                if (!hookArgs[i + 1].equals(callArgs[i])) {
+                    throw new IllegalStateException(ctx + ": arg type mismatch at index " + i + " [id=" + id + "]");
+                }
+            }
+        } else {
+            if (hookStartsWithOwner) {
+                throw new IllegalStateException(
+                        ctx + ": instance redirect handler must NOT declare Owner parameter; " +
+                                "remove the Owner or make the handler static [id=" + id + "]"
+                );
+            }
+            if (hookArgs.length != callArgs.length) {
+                throw new IllegalStateException(ctx + ": arg count mismatch for instance handler [id=" + id + "]");
+            }
+            for (int i = 0; i < callArgs.length; i++) {
+                if (!hookArgs[i].equals(callArgs[i])) {
+                    throw new IllegalStateException(ctx + ": arg type mismatch at index " + i + " [id=" + id + "]");
+                }
+            }
+        }
+
+        var callRet = org.objectweb.asm.Type.getReturnType(callDesc);
+        var hookRet = org.objectweb.asm.Type.getReturnType(hookDesc);
+        if (!hookRet.equals(callRet)) {
+            throw new IllegalStateException(ctx + ": return type mismatch: expected " +
+                    callRet + " but got " + hookRet + " [id=" + id + "]");
+        }
     }
 }
