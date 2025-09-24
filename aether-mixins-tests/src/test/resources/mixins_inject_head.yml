@@ -2,7 +2,7 @@ version: 1
 mixins:
   - name: e2e-inject-head
     classes:
-      - e2e.mixins.GreeterInjectHeadMixin
+      - e2e.statics.mixins.GreeterInjectHeadMixin
 runtime:
   safe_mode: false
   verify_frames: strict

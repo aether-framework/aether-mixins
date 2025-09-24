@@ -2,9 +2,9 @@ version: 1
 mixins:
   - name: e2e-order-combo
     classes:
-      - "e2e.mixins.OrderHeadMixin"
-      - "e2e.mixins.OrderTailMixin"
-      - "e2e.mixins.OrderRedirectMixin"
+      - "e2e.statics.mixins.OrderHeadMixin"
+      - "e2e.statics.mixins.OrderTailMixin"
+      - "e2e.statics.mixins.OrderRedirectMixin"
 runtime:
   safe_mode: false
   verify_frames: strict

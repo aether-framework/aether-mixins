@@ -1,7 +1,7 @@
 version: 1
 mixins:
   - name: e2e-iface
-    classes: [ e2e.mixins.UseInterfaceMixin ]
+    classes: [ e2e.statics.mixins.UseInterfaceMixin ]
 runtime:
   safe_mode: false
   verify_frames: strict

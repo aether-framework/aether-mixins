@@ -2,8 +2,8 @@ version: 1
 mixins:
   - name: e2e-tail-prio
     classes:
-      - "e2e.mixins.TailHighMixin"
-      - "e2e.mixins.TailLowMixin"
+      - "e2e.statics.mixins.TailHighMixin"
+      - "e2e.statics.mixins.TailLowMixin"
 runtime:
   safe_mode: false
   verify_frames: strict

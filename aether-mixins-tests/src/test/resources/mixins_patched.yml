@@ -2,7 +2,7 @@ version: 1
 mixins:
   - name: "e2e-basic"
     classes:
-      - "e2e.mixins.GreeterMixin"
+      - "e2e.statics.mixins.GreeterMixin"
 
 runtime:
   safe_mode: false

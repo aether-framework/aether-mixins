@@ -2,8 +2,8 @@ version: 1
 mixins:
   - name: e2e-ctor
     classes:
-      - e2e.mixins.CtorHeadMixin
-      - e2e.mixins.CtorTailMixin
+      - e2e.statics.mixins.CtorHeadMixin
+      - e2e.statics.mixins.CtorTailMixin
 runtime:
   safe_mode: false
   verify_frames: strict

@@ -1,7 +1,7 @@
 version: 1
 mixins:
   - name: e2e-super-special
-    classes: [ "e2e.mixins.SubSuperCallMixin" ]
+    classes: [ "e2e.statics.mixins.SubSuperCallMixin" ]
 runtime:
   safe_mode: false
   verify_frames: strict

@@ -1,7 +1,7 @@
 version: 1
 mixins:
   - name: "e2e-invokespecial-private"
-    classes: [e2e.mixins.PrivateSpecialMixin]
+    classes: [e2e.statics.mixins.PrivateSpecialMixin]
 
 runtime:
   safe_mode: true

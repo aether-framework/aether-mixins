@@ -3,7 +3,7 @@ version: 1
 mixins:
   - name: "e2e-invokestatic"
     classes:
-      - "e2e.mixins.StaticCallerMixin"
+      - "e2e.statics.mixins.StaticCallerMixin"
 
 runtime:
   safe_mode: true

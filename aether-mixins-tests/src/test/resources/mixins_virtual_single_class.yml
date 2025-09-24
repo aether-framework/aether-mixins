@@ -1,7 +1,7 @@
 version: 1
 mixins:
   - name: e2e-virtual-single-class
-    classes: [ e2e.mixins.GreeterVirtualSingleClassMixin ]
+    classes: [ e2e.statics.mixins.GreeterVirtualSingleClassMixin ]
 runtime:
   safe_mode: false
   verify_frames: strict

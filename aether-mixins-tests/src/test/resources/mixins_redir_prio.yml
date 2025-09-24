@@ -2,8 +2,8 @@ version: 1
 mixins:
   - name: e2e-redir-prio
     classes:
-      - "e2e.mixins.RedirLowMixin"
-      - "e2e.mixins.RedirHighMixin"
+      - "e2e.statics.mixins.RedirLowMixin"
+      - "e2e.statics.mixins.RedirHighMixin"
 runtime:
   safe_mode: false
   verify_frames: strict

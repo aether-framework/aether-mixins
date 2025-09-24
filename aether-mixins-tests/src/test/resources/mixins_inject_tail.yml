@@ -2,7 +2,7 @@ version: 1
 mixins:
   - name: e2e-inject-tail
     classes:
-      - e2e.mixins.GreeterInjectTailMixin
+      - e2e.statics.mixins.GreeterInjectTailMixin
 runtime:
   safe_mode: false
   verify_frames: strict

@@ -2,7 +2,7 @@ version: 1
 mixins:
   - name: e2e-ordinal
     classes:
-      - e2e.mixins.GreeterOrdinalMixin
+      - e2e.statics.mixins.GreeterOrdinalMixin
 runtime:
   safe_mode: false
   verify_frames: strict
