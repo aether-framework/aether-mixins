@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-inject-tail
+    classes:
+      - e2e.instance.mixins.TailInjectMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

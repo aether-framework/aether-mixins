@@ -1,7 +1,7 @@
 package e2e.instance;
 
-public class OptionalMain {
+public class TailMain {
     public static void main(final String[] args) {
-        new OptionalTarget().run();
+        new TailTarget().run();
     }
 }

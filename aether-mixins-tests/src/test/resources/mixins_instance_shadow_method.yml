@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-shadow-method
+    classes:
+      - e2e.instance.mixins.ShadowMethodProbeMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict
