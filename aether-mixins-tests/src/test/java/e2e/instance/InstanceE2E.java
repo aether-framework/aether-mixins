@@ -11,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 public class InstanceE2E {
 
-    // already like your sample
     @Test
     void injectInstanceMethod() throws Exception {
         var url = ClassLoader.getSystemResource("mixins_instance_inject_method.yml");
@@ -25,7 +24,6 @@ public class InstanceE2E {
         assertTrue(out.contains("ORIG-SUCCESS"), () -> "Expected ORIG-SUCCESS in output\n" + r.stdout);
     }
 
-    // prefix "shadow$" or no prefix: both valid
     @Test
     void instanceShadowMutableUnique_applied_shadowPrefix() throws Exception {
         var url = ClassLoader.getSystemResource("mixins_instance_count.yml");
