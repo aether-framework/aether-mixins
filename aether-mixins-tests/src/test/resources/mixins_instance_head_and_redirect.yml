@@ -1,0 +1,9 @@
+version: 1
+mixins:
+  - name: e2e-instance-head-and-redirect
+    classes:
+      - e2e.instance.mixins.HeadOrderMixin
+      - e2e.instance.mixins.RedirectOrderMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

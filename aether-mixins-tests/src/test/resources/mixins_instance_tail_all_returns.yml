@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-tail-all-returns
+    classes:
+      - e2e.instance.mixins.TailAllReturnsMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

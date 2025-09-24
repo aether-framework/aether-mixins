@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-head-cir
+    classes:
+      - e2e.instance.mixins.HeadCirMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

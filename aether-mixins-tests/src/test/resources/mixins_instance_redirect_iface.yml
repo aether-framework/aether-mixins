@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-redirect-iface
+    classes:
+      - e2e.instance.mixins.RedirectInterfaceMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict

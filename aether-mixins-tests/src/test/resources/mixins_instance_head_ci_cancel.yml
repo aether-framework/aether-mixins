@@ -1,0 +1,8 @@
+version: 1
+mixins:
+  - name: e2e-instance-head-ci-cancel
+    classes:
+      - e2e.instance.mixins.HeadVoidCancelMixin
+runtime:
+  safe_mode: false
+  verify_frames: strict
