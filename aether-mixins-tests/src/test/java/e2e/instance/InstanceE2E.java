@@ -377,8 +377,6 @@ public class InstanceE2E {
                 () -> "Expected RESULT=OK\n--- STDOUT ---\n" + r.stdout + "\n--- STDERR ---\n" + r.stderr);
     }
 
-    // TODO: Fix this two tests
-    @Disabled("Won't fix now, only disabled until tomorrow for CI stability")
     @Test
     void headPriority_ordering_isDeterministic() throws Exception {
         var url = ClassLoader.getSystemResource("mixins_instance_head_priority.yml");
@@ -397,7 +395,6 @@ public class InstanceE2E {
                 () -> "Expected RESULT=OK\n--- STDOUT ---\n" + r.stdout + "\n--- STDERR ---\n" + r.stderr);
     }
 
-    @Disabled("Won't fix now, only disabled until tomorrow for CI stability")
     @Test
     void tailPriority_ordering_isDeterministic() throws Exception {
         var url = ClassLoader.getSystemResource("mixins_instance_tail_priority.yml");

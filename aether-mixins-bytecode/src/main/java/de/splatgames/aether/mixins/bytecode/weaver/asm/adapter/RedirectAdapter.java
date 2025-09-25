@@ -1,5 +1,6 @@
 package de.splatgames.aether.mixins.bytecode.weaver.asm.adapter;
 
+import de.splatgames.aether.mixins.bytecode.weaver.asm.FinalNameRegistry;
 import de.splatgames.aether.mixins.bytecode.weaver.hook.ResolvedHook;
 import de.splatgames.aether.mixins.core.api.Redirect;
 import de.splatgames.aether.mixins.core.config.problems.ConfigProblems;
@@ -241,9 +242,10 @@ public final class RedirectAdapter extends MethodVisitor {
                     final String resolvedOwner = (this.targetOwnerInternalName != null)
                             ? this.targetOwnerInternalName
                             : this.thisClass; // defensive fallback
-                    String callName = this.hook.name();
+                    String callName = FinalNameRegistry
+                            .lookup(resolvedOwner, this.hook.owner(), this.hook.name(), this.hook.desc());
                     if (this.finalNameLookup != null && this.targetOwnerInternalName != null) {
-                        final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
+                        final String k = this.targetOwnerInternalName + "|" + this.hook.owner() + "#" + this.hook.name() + this.hook.desc();
                         final String resolved = this.finalNameLookup.apply(k, null);
                         if (resolved != null) callName = resolved;
                     }
@@ -274,9 +276,10 @@ public final class RedirectAdapter extends MethodVisitor {
                     }
 
                     // Use potentially renamed final method name (if @Unique caused a rename during pre-merge)
-                    String callName = this.hook.name();
+                    String callName = FinalNameRegistry
+                            .lookup(this.targetOwnerInternalName, this.hook.owner(), this.hook.name(), this.hook.desc());
                     if (this.finalNameLookup != null) {
-                        final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
+                        final String k = this.targetOwnerInternalName + "|" + this.hook.owner() + "#" + this.hook.name() + this.hook.desc();
                         final String resolved = this.finalNameLookup.apply(k, null);
                         if (resolved != null) callName = resolved;
                     }

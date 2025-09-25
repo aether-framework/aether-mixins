@@ -17,6 +17,8 @@ import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
+import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
@@ -243,9 +245,9 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
         final String UNIQUE_DESC_ANN = "Lde/splatgames/aether/mixins/core/api/Unique;";
 
         for (var insn = src.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            if (insn instanceof org.objectweb.asm.tree.FieldInsnNode fin && fin.owner.equals(mixinNode.name)) {
+            if (insn instanceof FieldInsnNode fin && fin.owner.equals(mixinNode.name)) {
                 // Find the referenced field on the mixin
-                final org.objectweb.asm.tree.FieldNode mixinField = mixinNode.fields.stream()
+                final FieldNode mixinField = mixinNode.fields.stream()
                         .filter(f -> f.name.equals(fin.name) && f.desc.equals(fin.desc))
                         .findFirst().orElse(null);
                 if (mixinField == null) {
@@ -266,7 +268,7 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
                 String finalFieldName = mixinField.name;
                 if (this.existingFields.contains(mixinField.name + mixinField.desc)) {
                     finalFieldName = mixinField.name + "$am$" + Integer.toHexString((mixinNode.name + mixinField.name + mixinField.desc).hashCode());
-                    FinalNameRegistry.register(this.targetOwner, mixinField.name, mixinField.desc, finalFieldName);
+                    FinalNameRegistry.register(this.targetOwner, mixinNode.name, mixinField.name, mixinField.desc, finalFieldName);
                 }
 
                 // If we already emitted the field under final name, just rewrite owner/name at the callsite
@@ -323,7 +325,7 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
                 String helperFinalName = helper.name;
                 if (this.existing.contains(helper.name + helper.desc)) {
                     helperFinalName = helper.name + "$am$" + Integer.toHexString((mixinNode.name + helper.name + helper.desc).hashCode());
-                    FinalNameRegistry.register(this.targetOwner, helper.name, helper.desc, helperFinalName);
+                    FinalNameRegistry.register(this.targetOwner, mixinNode.name, helper.name, helper.desc, helperFinalName);
                 }
 
                 // If we've already emitted the helper under final name, just rewrite callsite and continue
@@ -405,13 +407,9 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
         // 7) Decide insertion/rename policy
         String finalName = hook.name();
         if (this.existing.contains(nameDesc)) {
-            if (!isUnique) {
-                // Target already has same signature and method is not @Unique → skip
-                return;
-            }
-            // @Unique: rename deterministically and register mapping for downstream lookup
             finalName = hook.name() + "$am$" + Integer.toHexString((hook.owner() + hook.name() + hook.desc()).hashCode());
-            FinalNameRegistry.register(this.targetOwner, hook.name(), hook.desc(), finalName);
+            // IMPORTANT: register per mixin-owner to disambiguate multiple mixins with same hook name+desc
+            FinalNameRegistry.register(this.targetOwner, hook.owner(), hook.name(), hook.desc(), finalName);
         }
 
         // 8) Compute final access (private body copy; keep useful flags)

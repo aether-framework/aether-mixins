@@ -1,5 +1,6 @@
 package de.splatgames.aether.mixins.bytecode.weaver.asm.adapter;
 
+import de.splatgames.aether.mixins.bytecode.weaver.asm.FinalNameRegistry;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.util.HookShape;
 import de.splatgames.aether.mixins.bytecode.weaver.hook.ResolvedHook;
 import de.splatgames.aether.mixins.core.config.problems.ConfigProblems;
@@ -292,22 +293,26 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
             if (this.targetOwnerInternalName == null) {
                 throw new IllegalStateException("Static inject requires target owner context");
             }
-            final String owner = this.targetOwnerInternalName;
-            String callName = this.hook.name();
+            final String targetOwner = this.targetOwnerInternalName;
+            String callName = FinalNameRegistry
+                    .lookup(targetOwner, this.hook.owner(), this.hook.name(), this.hook.desc());
             if (this.finalNameLookup != null) {
-                final String k = owner + "#" + this.hook.name() + this.hook.desc();
+                final String k = targetOwner + "|" + hook.owner() + "#" + hook.name() + hook.desc();
                 final String resolved = this.finalNameLookup.apply(k, null);
+                System.out.println("lookup " + k + " -> " + resolved);
                 if (resolved != null) callName = resolved;
             }
-            super.visitMethodInsn(INVOKESTATIC, owner, callName, this.hook.desc(), false);
+            super.visitMethodInsn(INVOKESTATIC, targetOwner, callName, this.hook.desc(), false);
         } else {
             if (this.targetOwnerInternalName == null) {
                 throw new IllegalStateException("Instance inject requires target owner context");
             }
-            String callName = this.hook.name();
+            String callName = FinalNameRegistry
+                    .lookup(this.targetOwnerInternalName, this.hook.owner(), this.hook.name(), this.hook.desc());
             if (this.finalNameLookup != null) {
-                final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
+                final String k = this.targetOwnerInternalName + "|" + hook.owner() + "#" + hook.name() + hook.desc();
                 final String resolved = this.finalNameLookup.apply(k, null);
+                System.out.println("lookup " + k + " -> " + resolved);
                 if (resolved != null) callName = resolved;
             }
             // Use INVOKESPECIAL to call the merged instance hook on the target class
@@ -415,10 +420,12 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
                     throw new IllegalStateException("Static inject (ctor) requires target owner context");
                 }
                 final String resolvedOwner = this.targetOwnerInternalName;
-                String callName = this.hook.name();
+                String callName = FinalNameRegistry
+                        .lookup(resolvedOwner, this.hook.owner(), this.hook.name(), this.hook.desc());
                 if (this.finalNameLookup != null) {
-                    final String k = resolvedOwner + "#" + this.hook.name() + this.hook.desc();
+                    final String k = resolvedOwner + "|" + this.hook.owner() + "#" + this.hook.name() + this.hook.desc();
                     final String resolved = this.finalNameLookup.apply(k, null);
+                    System.out.println("lookup " + k + " -> " + resolved);
                     if (resolved != null) callName = resolved;
                 }
                 super.visitMethodInsn(INVOKESTATIC, resolvedOwner, callName, this.hook.desc(), false);
@@ -426,10 +433,12 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
                 if (this.targetOwnerInternalName == null) {
                     throw new IllegalStateException("Instance inject (ctor) requires target owner context");
                 }
-                String callName = this.hook.name();
+                String callName = FinalNameRegistry
+                        .lookup(this.targetOwnerInternalName, this.hook.owner(), this.hook.name(), this.hook.desc());
                 if (this.finalNameLookup != null) {
-                    final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
+                    final String k = this.targetOwnerInternalName + "|" + this.hook.owner() + "#" + this.hook.name() + this.hook.desc();
                     final String resolved = this.finalNameLookup.apply(k, null);
+                    System.out.println("lookup " + k + " -> " + resolved);
                     if (resolved != null) callName = resolved;
                 }
 

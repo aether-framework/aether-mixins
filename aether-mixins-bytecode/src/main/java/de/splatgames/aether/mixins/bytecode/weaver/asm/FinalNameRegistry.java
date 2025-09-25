@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <h2>Key format</h2>
  * <p>Mappings are keyed by the triple {@code (targetOwner, originalName, desc)}. For convenience,
- * the composite key can be constructed via {@link #composeKey(String, String, String)} and queried
+ * the composite key can be constructed via {@link #composeKey(String, String, String, String)} and queried
  * via {@link #lookupByCompositeKey(String)} when an adapter already has the composite form.</p>
  *
  * <h2>Semantics</h2>
@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li><b>First wins:</b> The first registration for a given key is retained. Subsequent
  *       divergent registrations are ignored and produce a diagnostic on {@code System.err} to
  *       highlight inconsistent pre-merge behavior.</li>
- *   <li><b>Idempotent lookups:</b> If no mapping exists, {@link #lookup(String, String, String)}
+ *   <li><b>Idempotent lookups:</b> If no mapping exists, {@link #lookup(String, String, String, String)}
  *       returns the original name (i.e., “no rename”).</li>
  *   <li><b>Thread-safety:</b> The registry is backed by a {@link ConcurrentHashMap} and supports
  *       concurrent read/write access during a single weaving run.</li>
@@ -34,9 +34,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * <h2>Typical usage</h2>
  * <ol>
  *   <li>Pre-merge copies or renames a hook method and calls
- *       {@link #register(String, String, String, String)} with the final name.</li>
+ *       {@link #register(String, String, String, String, String)} with the final name.</li>
  *   <li>Later adapters (HEAD/TAIL injectors, redirects) query
- *       {@link #lookup(String, String, String)} or {@link #lookupByCompositeKey(String)}
+ *       {@link #lookup(String, String, String, String)} or {@link #lookupByCompositeKey(String)}
  *       to obtain the actual name they must call on the target class.</li>
  * </ol>
  *
@@ -60,19 +60,20 @@ public final class FinalNameRegistry {
      *
      * <p>The composite format is:
      * <pre>{@code
-     *   owner + "#" + name + desc
+     *   targetOwner + "|" + mixinOwner + "#" + name + desc
      * }</pre>
      *
-     * @param owner internal JVM name (slash-separated) of the <em>target</em> class
+     * @param targetOwner internal JVM name (slash-separated) of the <em>target</em> class
      * @param name  original method name prior to any renaming
      * @param desc  JVM method descriptor, e.g. {@code (I)Ljava/lang/String;}
      * @return a non-null composite key string
      */
     @NotNull
-    private static String key(@NotNull final String owner,
+    private static String key(@NotNull final String targetOwner,
+                              @NotNull final String mixinOwner,
                               @NotNull final String name,
                               @NotNull final String desc) {
-        return owner + "#" + name + desc;
+        return targetOwner + "|" + mixinOwner + "#" + name + desc;
     }
 
     /**
@@ -86,6 +87,7 @@ public final class FinalNameRegistry {
      * is emitted to {@code System.err} to signal a potential planning inconsistency.</p>
      *
      * @param targetOwner  internal JVM name (slash-separated) of the target class receiving the hook copy
+     * @param mixinOwner   internal JVM name (slash-separated) of the mixin class defining the hook
      * @param originalName original method name prior to any rename
      * @param desc         JVM method descriptor, e.g. {@code (I)V}
      * @param finalName    the conflict-free final name used in the target class; may be {@code null}
@@ -93,6 +95,7 @@ public final class FinalNameRegistry {
      * for a key is retained (via {@link ConcurrentHashMap#putIfAbsent(Object, Object)}).
      */
     public static void register(@NotNull final String targetOwner,
+                                @NotNull final String mixinOwner,
                                 @NotNull final String originalName,
                                 @NotNull final String desc,
                                 @Nullable final String finalName) {
@@ -100,7 +103,8 @@ public final class FinalNameRegistry {
             return;
         }
 
-        final String k = key(targetOwner, originalName, desc);
+        final String k = key(targetOwner, mixinOwner, originalName, desc);
+        System.out.println("[FinalNameRegistry] registering final name: " + k + " -> " + finalName);
         // first-wins: keep deterministic behavior, log if a different value is attempted
         final String prev = MAP.putIfAbsent(k, finalName);
         if (prev != null && !prev.equals(finalName)) {
@@ -115,15 +119,17 @@ public final class FinalNameRegistry {
      * was applied.</p>
      *
      * @param targetOwner  internal JVM name (slash-separated) of the target class
+     * @param mixinOwner   internal JVM name (slash-separated) of the mixin class defining the hook
      * @param originalName original method name prior to any rename
      * @param desc         JVM method descriptor
      * @return the final, conflict-free name if registered; otherwise {@code originalName}
      */
     @NotNull
     public static String lookup(@NotNull final String targetOwner,
+                                @NotNull final String mixinOwner,
                                 @NotNull final String originalName,
                                 @NotNull final String desc) {
-        final String m = MAP.get(key(targetOwner, originalName, desc));
+        final String m = MAP.get(key(targetOwner, mixinOwner, originalName, desc));
         return (m != null) ? m : originalName;
     }
 
@@ -133,9 +139,9 @@ public final class FinalNameRegistry {
      * <p>This is a convenience for adapters that already track the composite form
      * ({@code owner + "#" + name + desc}). If no mapping exists, {@code null} is returned.</p>
      *
-     * @param ownerPlusNameDesc the composite key as produced by {@link #composeKey(String, String, String)}
+     * @param ownerPlusNameDesc the composite key as produced by {@link #composeKey(String, String, String, String)}
      * @return the mapped final name, or {@code null} if none is registered
-     * @see #composeKey(String, String, String)
+     * @see #composeKey(String, String, String, String)
      */
     @Nullable
     public static String lookupByCompositeKey(@NotNull final String ownerPlusNameDesc) {
@@ -145,19 +151,21 @@ public final class FinalNameRegistry {
     /**
      * Produces the composite key used by this registry from the given components.
      *
-     * <p>Equivalent to the internal {@link #key(String, String, String)} method, but public
+     * <p>Equivalent to the internal {@link #key(String, String, String, String)} method, but public
      * for callers that need to construct keys in a consistent way.</p>
      *
-     * @param owner internal JVM name (slash-separated) of the target class
+     * @param targetOwner internal JVM name (slash-separated) of the target class
+     * @param mixinOwner  internal JVM name (slash-separated) of the mixin class defining the hook
      * @param name  original method name prior to any rename
      * @param desc  JVM method descriptor
      * @return a non-null composite key string
      */
     @NotNull
-    public static String composeKey(@NotNull final String owner,
+    public static String composeKey(@NotNull final String targetOwner,
+                                    @NotNull final String mixinOwner,
                                     @NotNull final String name,
                                     @NotNull final String desc) {
-        return key(owner, name, desc);
+        return key(targetOwner, mixinOwner, name, desc);
     }
 
     /**

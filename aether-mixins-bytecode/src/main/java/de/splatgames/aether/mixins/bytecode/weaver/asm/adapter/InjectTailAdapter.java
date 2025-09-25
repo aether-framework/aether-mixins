@@ -1,5 +1,6 @@
 package de.splatgames.aether.mixins.bytecode.weaver.asm.adapter;
 
+import de.splatgames.aether.mixins.bytecode.weaver.asm.FinalNameRegistry;
 import de.splatgames.aether.mixins.bytecode.weaver.asm.util.HookShape;
 import de.splatgames.aether.mixins.bytecode.weaver.hook.ResolvedHook;
 import de.splatgames.aether.mixins.core.config.problems.ConfigProblems;
@@ -310,9 +311,10 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
                     throw new IllegalStateException("Static inject (tail) requires target owner context");
                 }
                 final String owner = this.targetOwnerInternalName;
-                String callName = this.hook.name();
+                String callName = FinalNameRegistry
+                        .lookup(owner, this.hook.owner(), this.hook.name(), this.hook.desc());
                 if (this.finalNameLookup != null) {
-                    final String k = owner + "#" + this.hook.name() + this.hook.desc();
+                    final String k = owner + "|" + this.hook.owner() + "#" + this.hook.name() + this.hook.desc();
                     final String resolved = this.finalNameLookup.apply(k, null);
                     if (resolved != null) callName = resolved;
                 }
@@ -321,9 +323,10 @@ public final class InjectTailAdapter extends LocalVariablesSorter {
                 if (this.targetOwnerInternalName == null) {
                     throw new IllegalStateException("Instance inject (tail) requires target owner context");
                 }
-                String callName = this.hook.name();
+                String callName = FinalNameRegistry
+                        .lookup(this.targetOwnerInternalName, this.hook.owner(), this.hook.name(), this.hook.desc());
                 if (this.finalNameLookup != null) {
-                    final String k = this.targetOwnerInternalName + "#" + this.hook.name() + this.hook.desc();
+                    final String k = this.targetOwnerInternalName + "|" + this.hook.owner() + "#" + this.hook.name() + this.hook.desc();
                     final String resolved = this.finalNameLookup.apply(k, null);
                     if (resolved != null) callName = resolved;
                 }
