@@ -3,7 +3,6 @@ package e2e.instance.mixins;
 import de.splatgames.aether.mixins.core.api.Mixin;
 import de.splatgames.aether.mixins.core.api.Redirect;
 import e2e.instance.RedirectVirtualInstanceTarget;
-import e2e.instance.MathService;
 
 @Mixin(RedirectVirtualInstanceTarget.class)
 public abstract class RedirectVirtualInstanceMixin {

@@ -230,10 +230,8 @@ public final class RedirectAdapter extends MethodVisitor {
                                 @NotNull final String descriptor,
                                 final boolean isInterface) {
         if (this.matches(opcode, owner, name, descriptor, isInterface)) {
-            // TODO: Support non-self instance redirects (Sponge-style).
-            // Approach: keep redirect handlers STATIC and pass original receiver as first arg.
-            // Steps: validate handler descriptor (receiver + args), always INVOKESTATIC to hook,
-            // then remove the self-call guard here once implemented.
+            // Non-self instance redirects are now supported:
+            // Instance handlers for non-self calls must declare the receiver as the first parameter.
             final int current = this.seen++;
             if (this.ordinal < 0 || this.ordinal == current) {
 
@@ -258,22 +256,18 @@ public final class RedirectAdapter extends MethodVisitor {
                             this.owner,
                             this.desc,
                             this.hook.desc(),
-                            this.id
+                            this.id,
+                            true // static handlers are always "self-call" equivalent
                     );
 
                     super.visitMethodInsn(INVOKESTATIC, resolvedOwner, callName, this.hook.desc(), false);
                 } else {
-                    // We only support rewriting self-calls, because the merged hook lives in the target class.
+                    // Instance redirect handler (non-static hook method)
                     if (this.targetOwnerInternalName == null) {
                         throw new IllegalStateException("Instance redirect requires target owner context");
                     }
-                    if (!owner.equals(this.thisClass)) {
-                        // Not a self-call: the original receiver type ≠ target class, cannot invoke merged instance hook.
-                        // Either fail hard or degrade gracefully. We fail to avoid silent miscompiles.
-                        throw new IllegalStateException(
-                                "Instance redirect only supported for self calls: call owner=" + owner +
-                                        ", target=" + this.thisClass + ", id=" + this.id);
-                    }
+
+                    final boolean isSelfCall = owner.equals(this.thisClass);
 
                     // Use potentially renamed final method name (if @Unique caused a rename during pre-merge)
                     String callName = FinalNameRegistry
@@ -292,13 +286,87 @@ public final class RedirectAdapter extends MethodVisitor {
                             this.owner,
                             this.desc,
                             this.hook.desc(),
-                            this.id
+                            this.id,
+                            isSelfCall
                     );
 
-                    // Stack note:
-                    // For a self-call, the original receiver 'this' is already on the stack.
-                    // We just replace the call site to invoke our merged method on the same 'this'.
-                    super.visitMethodInsn(INVOKESPECIAL, this.targetOwnerInternalName, callName, this.hook.desc(), false);
+                    if (isSelfCall) {
+                        // Stack: [this, args...]
+                        // For a self-call, the original receiver 'this' is already on the stack.
+                        // We just replace the call site to invoke our merged method on the same 'this'.
+                        super.visitMethodInsn(INVOKESPECIAL, this.targetOwnerInternalName, callName, this.hook.desc(), false);
+                    } else {
+                        // Non-self call: the receiver on the stack is the external object (e.g., MathService)
+                        // Stack before: [receiver, arg1, arg2, ...]
+
+                        Type[] callArgs = Type.getArgumentTypes(descriptor);
+                        Type[] hookArgs = Type.getArgumentTypes(this.hook.desc());
+                        boolean handlerWantsReceiver = hookArgs.length > 0 && hookArgs[0].getSort() == Type.OBJECT;
+
+                        if (handlerWantsReceiver) {
+                            // Handler wants receiver: Stack needed for INVOKESPECIAL: [this, receiver, arg1, arg2, ...]
+                            // We need to insert 'this' before the receiver and arguments
+
+                            // Store arguments in reverse order (top of stack first)
+                            int localBase = 100; // Use high local indices to avoid conflicts
+                            int localIdx = localBase;
+
+                            // Store arguments
+                            for (int i = callArgs.length - 1; i >= 0; i--) {
+                                super.visitVarInsn(callArgs[i].getOpcode(org.objectweb.asm.Opcodes.ISTORE), localIdx);
+                                localIdx += callArgs[i].getSize();
+                            }
+
+                            // Store receiver
+                            int receiverLocal = localIdx;
+                            super.visitVarInsn(org.objectweb.asm.Opcodes.ASTORE, receiverLocal);
+
+                            // Load 'this'
+                            super.visitVarInsn(org.objectweb.asm.Opcodes.ALOAD, 0);
+
+                            // Load receiver
+                            super.visitVarInsn(org.objectweb.asm.Opcodes.ALOAD, receiverLocal);
+
+                            // Load arguments in forward order
+                            localIdx = localBase;
+                            for (int i = 0; i < callArgs.length; i++) {
+                                super.visitVarInsn(callArgs[i].getOpcode(org.objectweb.asm.Opcodes.ILOAD), localIdx);
+                                localIdx += callArgs[i].getSize();
+                            }
+
+                            // Now call the handler: Stack is [this, receiver, args...]
+                            super.visitMethodInsn(INVOKESPECIAL, this.targetOwnerInternalName, callName, this.hook.desc(), false);
+                        } else {
+                            // Handler doesn't want receiver: Stack needed for INVOKESPECIAL: [this, arg1, arg2, ...]
+                            // We need to discard receiver and insert 'this' instead
+
+                            // Store arguments in reverse order (top of stack first)
+                            int localBase = 100; // Use high local indices to avoid conflicts
+                            int localIdx = localBase;
+
+                            // Store arguments
+                            for (int i = callArgs.length - 1; i >= 0; i--) {
+                                super.visitVarInsn(callArgs[i].getOpcode(org.objectweb.asm.Opcodes.ISTORE), localIdx);
+                                localIdx += callArgs[i].getSize();
+                            }
+
+                            // Discard receiver (POP)
+                            super.visitInsn(org.objectweb.asm.Opcodes.POP);
+
+                            // Load 'this'
+                            super.visitVarInsn(org.objectweb.asm.Opcodes.ALOAD, 0);
+
+                            // Load arguments in forward order
+                            localIdx = localBase;
+                            for (int i = 0; i < callArgs.length; i++) {
+                                super.visitVarInsn(callArgs[i].getOpcode(org.objectweb.asm.Opcodes.ILOAD), localIdx);
+                                localIdx += callArgs[i].getSize();
+                            }
+
+                            // Now call the handler: Stack is [this, args...]
+                            super.visitMethodInsn(INVOKESPECIAL, this.targetOwnerInternalName, callName, this.hook.desc(), false);
+                        }
+                    }
                 }
 
                 this.markChanged.run();
@@ -408,7 +476,8 @@ public final class RedirectAdapter extends MethodVisitor {
                                           @NotNull final String callOwner,
                                           @NotNull final String callDesc,
                                           @NotNull final String hookDesc,
-                                          @NotNull final String id) {
+                                          @NotNull final String id,
+                                          final boolean isSelfCall) {
         Type[] callArgs = Type.getArgumentTypes(callDesc);
         Type[] hookArgs = Type.getArgumentTypes(hookDesc);
         Type callRet = Type.getReturnType(callDesc);
@@ -448,17 +517,44 @@ public final class RedirectAdapter extends MethodVisitor {
             }
         } else {
             // instance handler
-            if (hasOwnerParam) {
-                throw new IllegalStateException(
-                        ctx + ": instance redirect handler must NOT declare Owner param; either remove it or make handler static [id=" + id + "]"
-                );
-            }
-            if (hookArgs.length != callArgs.length) {
-                throw new IllegalStateException(ctx + ": arg count mismatch (instance) [id=" + id + "]");
-            }
-            for (int i = 0; i < callArgs.length; i++) {
-                if (!hookArgs[i].equals(callArgs[i])) {
-                    throw new IllegalStateException(ctx + ": arg type mismatch @" + i + " (instance) [id=" + id + "]");
+            if (isSelfCall) {
+                // Self-call: handler does NOT need receiver parameter
+                if (hasOwnerParam) {
+                    throw new IllegalStateException(
+                            ctx + ": self-call instance redirect handler must NOT declare receiver param [id=" + id + "]"
+                    );
+                }
+                if (hookArgs.length != callArgs.length) {
+                    throw new IllegalStateException(ctx + ": arg count mismatch (instance self-call) [id=" + id + "]");
+                }
+                for (int i = 0; i < callArgs.length; i++) {
+                    if (!hookArgs[i].equals(callArgs[i])) {
+                        throw new IllegalStateException(ctx + ": arg type mismatch @" + i + " (instance self-call) [id=" + id + "]");
+                    }
+                }
+            } else {
+                // Non-self call: handler MAY have receiver as first parameter (optional)
+                if (hasOwnerParam) {
+                    // Handler declares receiver parameter
+                    if (hookArgs.length - 1 != callArgs.length) {
+                        throw new IllegalStateException(ctx + ": arg count mismatch (instance non-self with receiver) [id=" + id + "]");
+                    }
+                    // compare tail args with call args (skip first receiver param)
+                    for (int i = 0; i < callArgs.length; i++) {
+                        if (!hookArgs[i + 1].equals(callArgs[i])) {
+                            throw new IllegalStateException(ctx + ": arg type mismatch @" + i + " (instance non-self with receiver) [id=" + id + "]");
+                        }
+                    }
+                } else {
+                    // Handler does NOT declare receiver parameter - just match call args
+                    if (hookArgs.length != callArgs.length) {
+                        throw new IllegalStateException(ctx + ": arg count mismatch (instance non-self without receiver) [id=" + id + "]");
+                    }
+                    for (int i = 0; i < callArgs.length; i++) {
+                        if (!hookArgs[i].equals(callArgs[i])) {
+                            throw new IllegalStateException(ctx + ": arg type mismatch @" + i + " (instance non-self without receiver) [id=" + id + "]");
+                        }
+                    }
                 }
             }
         }

@@ -269,7 +269,6 @@ public class InstanceE2E {
                 () -> "Expected RESULT=HELLO, BOB!\n--- STDOUT ---\n" + r.stdout + "\n--- STDERR ---\n" + r.stderr);
     }
 
-    @Disabled("Non-self instance redirects not yet supported; enable when adapter supports non-self calls")
     @Test
     void redirectVirtual_instanceHandler_noOwner_multiArg() throws Exception {
         var url = ClassLoader.getSystemResource("mixins_instance_redirect_virtual_instance.yml");
