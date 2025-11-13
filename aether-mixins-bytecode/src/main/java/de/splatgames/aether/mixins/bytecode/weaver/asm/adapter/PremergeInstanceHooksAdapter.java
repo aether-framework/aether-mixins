@@ -408,9 +408,10 @@ public final class PremergeInstanceHooksAdapter extends ClassVisitor {
         String finalName = hook.name();
         if (this.existing.contains(nameDesc)) {
             finalName = hook.name() + "$am$" + Integer.toHexString((hook.owner() + hook.name() + hook.desc()).hashCode());
-            // IMPORTANT: register per mixin-owner to disambiguate multiple mixins with same hook name+desc
-            FinalNameRegistry.register(this.targetOwner, hook.owner(), hook.name(), hook.desc(), finalName);
         }
+        // IMPORTANT: Always register per mixin-owner to disambiguate multiple mixins with same hook name+desc
+        // This ensures lookups work even when hooks keep their original name
+        FinalNameRegistry.register(this.targetOwner, hook.owner(), hook.name(), hook.desc(), finalName);
 
         // 8) Compute final access (private body copy; keep useful flags)
         final int access =

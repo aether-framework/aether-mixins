@@ -99,12 +99,11 @@ public final class FinalNameRegistry {
                                 @NotNull final String originalName,
                                 @NotNull final String desc,
                                 @Nullable final String finalName) {
-        if (finalName == null || finalName.equals(originalName)) {
+        if (finalName == null) {
             return;
         }
 
         final String k = key(targetOwner, mixinOwner, originalName, desc);
-        System.out.println("[FinalNameRegistry] registering final name: " + k + " -> " + finalName);
         // first-wins: keep deterministic behavior, log if a different value is attempted
         final String prev = MAP.putIfAbsent(k, finalName);
         if (prev != null && !prev.equals(finalName)) {

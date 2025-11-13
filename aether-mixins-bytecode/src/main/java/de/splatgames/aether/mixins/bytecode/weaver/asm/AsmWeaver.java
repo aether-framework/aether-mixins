@@ -501,12 +501,19 @@ public final class AsmWeaver implements Weaver {
                 problems.warn("unfinalize/" + internalName, "Failed to compute unfinalize set: " + t.getClass().getSimpleName() + ": " + t.getMessage());
             }
 
-            cv = new PremergeInstanceHooksAdapter(ASM9, cv, internalName, work, request, problems);
+            // First pass: PremergeInstanceHooksAdapter to register hooks and copy them
+            final ClassWriter premergeWriter = new ClassWriter(0);
+            ClassVisitor premergeCV = new PremergeInstanceHooksAdapter(ASM9, premergeWriter, internalName, work, request, problems);
+            premergeCV = new UnfinalizeFieldsAdapter(ASM9, premergeCV, unfinalize);
+            cr.accept(premergeCV, 0);
 
-            cv = new UnfinalizeFieldsAdapter(ASM9, cv, unfinalize);
+            // Use the premerged class for the second pass
+            final byte[] premerged = premergeWriter.toByteArray();
+            final ClassReader cr2 = new ClassReader(premerged);
+            cr2.accept(cv, acceptFlags);
+        } else {
+            cr.accept(cv, acceptFlags);
         }
-
-        cr.accept(cv, acceptFlags);
         return changed.isSet() ? cw.toByteArray() : null;
     }
 

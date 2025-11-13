@@ -299,7 +299,6 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
             if (this.finalNameLookup != null) {
                 final String k = targetOwner + "|" + hook.owner() + "#" + hook.name() + hook.desc();
                 final String resolved = this.finalNameLookup.apply(k, null);
-                System.out.println("lookup " + k + " -> " + resolved);
                 if (resolved != null) callName = resolved;
             }
             super.visitMethodInsn(INVOKESTATIC, targetOwner, callName, this.hook.desc(), false);
@@ -312,7 +311,6 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
             if (this.finalNameLookup != null) {
                 final String k = this.targetOwnerInternalName + "|" + hook.owner() + "#" + hook.name() + hook.desc();
                 final String resolved = this.finalNameLookup.apply(k, null);
-                System.out.println("lookup " + k + " -> " + resolved);
                 if (resolved != null) callName = resolved;
             }
             // Use INVOKESPECIAL to call the merged instance hook on the target class
@@ -425,7 +423,6 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
                 if (this.finalNameLookup != null) {
                     final String k = resolvedOwner + "|" + this.hook.owner() + "#" + this.hook.name() + this.hook.desc();
                     final String resolved = this.finalNameLookup.apply(k, null);
-                    System.out.println("lookup " + k + " -> " + resolved);
                     if (resolved != null) callName = resolved;
                 }
                 super.visitMethodInsn(INVOKESTATIC, resolvedOwner, callName, this.hook.desc(), false);
@@ -438,7 +435,6 @@ public final class InjectHeadAdapter extends LocalVariablesSorter {
                 if (this.finalNameLookup != null) {
                     final String k = this.targetOwnerInternalName + "|" + this.hook.owner() + "#" + this.hook.name() + this.hook.desc();
                     final String resolved = this.finalNameLookup.apply(k, null);
-                    System.out.println("lookup " + k + " -> " + resolved);
                     if (resolved != null) callName = resolved;
                 }
 

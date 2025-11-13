@@ -46,3 +46,6 @@ bin/
 # Maven
 /target/
 **/target/
+/CLAUDE.md
+/.claude/settings.local.json
+/REPORT.md
