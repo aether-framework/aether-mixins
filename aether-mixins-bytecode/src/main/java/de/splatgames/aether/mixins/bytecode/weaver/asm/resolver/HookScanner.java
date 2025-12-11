@@ -2,6 +2,8 @@ package de.splatgames.aether.mixins.bytecode.weaver.asm.resolver;
 
 import de.splatgames.aether.mixins.bytecode.weaver.hook.CandidateHook;
 import de.splatgames.aether.mixins.bytecode.weaver.hook.HookInvocation;
+import de.splatgames.aether.mixins.core.api.Inject;
+import de.splatgames.aether.mixins.core.api.Redirect;
 import de.splatgames.aether.mixins.core.config.problems.ConfigProblems;
 import de.splatgames.aether.mixins.core.plan.PlannedEntry;
 import org.jetbrains.annotations.NotNull;
@@ -45,8 +47,8 @@ public final class HookScanner {
      */
     public HookScanner(@NotNull final PlannedEntry.Kind kind) {
         this.requiredAnnDesc = (kind == PlannedEntry.Kind.INJECT)
-                ? Type.getDescriptor(de.splatgames.aether.mixins.core.api.Inject.class)
-                : Type.getDescriptor(de.splatgames.aether.mixins.core.api.Redirect.class);
+                ? Type.getDescriptor(Inject.class)
+                : Type.getDescriptor(Redirect.class);
     }
 
     /**
